@@ -1,0 +1,6 @@
+{
+  "name": "OrderHub F&B Manager",
+  "description": "Unified dashboard, order management, manual order entry, and product catalog manager for OrderHub F&B business operations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
