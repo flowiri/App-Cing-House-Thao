@@ -33,7 +33,7 @@ export default function ProductCatalogView({
   const [formCategory, setFormCategory] = useState('drinks');
   const [formPrice, setFormPrice] = useState(0);
   const [formStatus, setFormStatus] = useState<'active' | 'inactive'>('active');
-  const [formImage, setFormImage] = useState('https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3');
+  const [formImage, setFormImage] = useState('');
 
   // Computed statistics over catalog
   const totalProducts = products.length;
@@ -63,7 +63,7 @@ export default function ProductCatalogView({
     setFormCategory('drinks');
     setFormPrice(45000);
     setFormStatus('active');
-    setFormImage('https://images.unsplash.com/photo-1556881286-fc6915169721?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3');
+    setFormImage('');
     setShowAddModal(true);
   };
 
@@ -296,12 +296,16 @@ export default function ProductCatalogView({
                     {/* Miniature thumbnail */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shadow-sm flex items-center justify-center">
-                        <img 
-                          className="w-full h-full object-cover" 
-                          src={product.image} 
-                          alt={product.name} 
-                          referrerPolicy="no-referrer"
-                        />
+                        {product.image ? (
+                          <img 
+                            className="w-full h-full object-cover" 
+                            src={product.image} 
+                            alt={product.name} 
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <span className="material-symbols-outlined text-slate-300 text-[22px]">restaurant_menu</span>
+                        )}
                       </div>
                     </td>
 
@@ -482,6 +486,7 @@ export default function ProductCatalogView({
                   onChange={(e) => setFormImage(e.target.value)}
                   className="w-full text-xs font-bold border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none"
                 >
+                  <option value="">Không dùng ảnh</option>
                   <option value="https://lh3.googleusercontent.com/aida-public/AB6AXuCmfbVp1o8Tafy_WFoLeVfrcomou-XGu4kHEZhr6JLp9cG8uGCtxdMlKBWrPlCYrpQzYm1nOIVdsh0XBIYxZRMHaFAij7QHeg0NjkAhr9yzcfEKTNaDuwKmboM4w2DPFdkbEoAhzkNQJkw5IdGm3G10cMDdo73seSU0iM3QOFQmpHX4PyuinmEuLRDOBUF_NaQzSMeTv1DetgRB2MYmSe3bRxd-37p0kpo_nK7a4ojwZj_yUhKxC6aZok41U4zHwIe6BsN9eCkid5E">Matcha Latte (F&B Real Resource)</option>
                   <option value="https://lh3.googleusercontent.com/aida-public/AB6AXuCGdQjddBQCGlmxKqdirfKbFGPICQLhGfyU0OWVfuSe46OsBray4dxoACsIz9jeSA2ywRlC9O4LWwQdb9RLjACfEk_EyMT6qYjy_wB0zykK6UwYWsmo-o4AcODkVZu0Hdj1Rdvwky9Ga0MXARLBnCe0_glAn95kx-rMpvnvS_nDZLFy-jbKW01OqJ4dX0F7p64XlZjQVZo6kX0eBM-q_08xV-hVVh9uxuhrwCTbcQyz6ppmBp_BQWwLgFqtqRM_c0o6HMJMDDjRXqw">Cà phê Sữa Đá (F&B Real Resource)</option>
                   <option value="https://lh3.googleusercontent.com/aida-public/AB6AXuC-nB0Nl_tfMv0lEEWhxHQ_ETGervAFI4zASEMpTQQGy1KcUbFn7qKLb8NPv_0HSo0GsQB5PEyYjrPHC4ExtCrXFP9OLfHBGdCkzK9xmRhjhTiIz8-6u9X_lx7yeKRUReQnrtgMPpk3Y2M8UcvH0hw52yU8lV5WZ6r9PsdqvEeO5i8S6i8zYWqMnrW_apsaAqMgM_EqqBbj4gAE0pazm6oQJFa-LO71UaP4XJP4OMwiFPOVHR9eqcdrp-yyqga8VxKxcGtrHgeQ62E">Bánh mì thịt nướng (F&B Real Resource)</option>
@@ -603,7 +608,6 @@ export default function ProductCatalogView({
                 <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider mb-1">Visual Asset Image URL </label>
                 <input
                   type="text"
-                  required
                   value={formImage}
                   onChange={(e) => setFormImage(e.target.value)}
                   className="w-full text-xs font-bold border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none"

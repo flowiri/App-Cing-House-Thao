@@ -11,10 +11,12 @@ create table if not exists cinghouse.products (
   price numeric not null check (price >= 0),
   currency text not null default 'VND',
   status text not null check (status in ('active', 'inactive')),
-  image text not null,
+  image text not null default '',
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table cinghouse.products alter column image set default '';
 
 create or replace function cinghouse.set_updated_at()
 returns trigger
