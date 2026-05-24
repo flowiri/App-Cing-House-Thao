@@ -54,23 +54,6 @@ export async function loadProducts(): Promise<Product[]> {
   return ((data ?? []) as ProductRow[]).map(toProduct);
 }
 
-export async function seedProductsIfEmpty(initialProducts: Product[]): Promise<Product[]> {
-  const existingProducts = await loadProducts();
-
-  if (existingProducts.length > 0) {
-    return existingProducts;
-  }
-
-  const { data, error } = await supabase
-    .from('products')
-    .insert(initialProducts.map(toProductRow))
-    .select(productColumns);
-
-  if (error) throw error;
-
-  return ((data ?? []) as ProductRow[]).map(toProduct);
-}
-
 export async function createProduct(product: Product): Promise<Product> {
   const { data, error } = await supabase
     .from('products')

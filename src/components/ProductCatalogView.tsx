@@ -4,9 +4,9 @@ import { Search, Plus, Filter, Edit3, Trash2, X, SlidersHorizontal, CheckCircle2
 
 interface ProductCatalogViewProps {
   products: Product[];
-  onAddProduct: (newProduct: Product) => void;
-  onEditProduct: (updatedProduct: Product) => void;
-  onDeleteProduct: (productId: string) => void;
+  onAddProduct: (newProduct: Product) => Promise<boolean>;
+  onEditProduct: (updatedProduct: Product) => Promise<boolean>;
+  onDeleteProduct: (productId: string) => Promise<boolean>;
 }
 
 export default function ProductCatalogView({
@@ -24,6 +24,8 @@ export default function ProductCatalogView({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
 
   // Form states for Add/Edit
   const [formName, setFormName] = useState('');
@@ -65,7 +67,7 @@ export default function ProductCatalogView({
     setShowAddModal(true);
   };
 
-  const handleSaveAdd = (e: React.FormEvent) => {
+  const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName) {
       alert('Vui lòng điền tên sản phẩm.');
@@ -84,8 +86,13 @@ export default function ProductCatalogView({
       image: formImage
     };
 
-    onAddProduct(newProd);
-    setShowAddModal(false);
+    setIsSavingProduct(true);
+    try {
+      const wasSaved = await onAddProduct(newProd);
+      if (wasSaved) setShowAddModal(false);
+    } finally {
+      setIsSavingProduct(false);
+    }
   };
 
   // Actions trigger: Edit product
@@ -100,7 +107,7 @@ export default function ProductCatalogView({
     setShowEditModal(true);
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct) return;
 
@@ -115,14 +122,24 @@ export default function ProductCatalogView({
       image: formImage
     };
 
-    onEditProduct(updated);
-    setShowEditModal(false);
+    setIsSavingProduct(true);
+    try {
+      const wasSaved = await onEditProduct(updated);
+      if (wasSaved) setShowEditModal(false);
+    } finally {
+      setIsSavingProduct(false);
+    }
   };
 
   // Action trigger: Delete product
-  const handleDeleteTrigger = (product: Product) => {
+  const handleDeleteTrigger = async (product: Product) => {
     if (confirm(`Bạn có chắc muốn xóa sản phẩm ${product.name} (SKU: ${product.sku}) khỏi danh mục hệ thống?`)) {
-      onDeleteProduct(product.id);
+      setDeletingProductId(product.id);
+      try {
+        await onDeleteProduct(product.id);
+      } finally {
+        setDeletingProductId(null);
+      }
     }
   };
 
@@ -324,15 +341,17 @@ export default function ProductCatalogView({
                       <div className="flex items-center justify-end gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleOpenEdit(product)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-[#9d4300] hover:bg-orange-50 transition-colors"
+                          disabled={deletingProductId !== null}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-[#9d4300] hover:bg-orange-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           title="Sửa"
                         >
                           <Edit3 size={15} />
                         </button>
                         <button
                           onClick={() => handleDeleteTrigger(product)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                          title="Xóa"
+                          disabled={deletingProductId !== null}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={deletingProductId === product.id ? 'Đang xóa khỏi Supabase...' : 'Xóa'}
                         >
                           <Trash2 size={15} />
                         </button>
@@ -372,7 +391,8 @@ export default function ProductCatalogView({
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-6 relative border border-slate-100 shadow-2xl">
             <button 
               onClick={() => setShowAddModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+              disabled={isSavingProduct}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <X size={18} />
             </button>
@@ -474,15 +494,17 @@ export default function ProductCatalogView({
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+                  disabled={isSavingProduct}
+                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Đóng
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#f97316] text-[#faf0eb] hover:bg-[#9d4300] font-black text-xs rounded-xl shadow transition-colors"
+                  disabled={isSavingProduct}
+                  className="px-5 py-2.5 bg-[#f97316] text-[#faf0eb] hover:bg-[#9d4300] font-black text-xs rounded-xl shadow transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  ✓ Thêm Sản phẩm
+                  {isSavingProduct ? 'Đang lưu vào Supabase...' : '✓ Thêm Sản phẩm'}
                 </button>
               </div>
             </form>
@@ -496,7 +518,8 @@ export default function ProductCatalogView({
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-6 relative border border-slate-100 shadow-2xl">
             <button 
               onClick={() => setShowEditModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+              disabled={isSavingProduct}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <X size={18} />
             </button>
@@ -591,15 +614,17 @@ export default function ProductCatalogView({
                 <button
                   type="button"
                   onClick={() => setShowEditModal(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+                  disabled={isSavingProduct}
+                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Đóng
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#f97316] text-[#faf0eb] hover:bg-[#9d4300] font-black text-xs rounded-xl shadow transition-colors"
+                  disabled={isSavingProduct}
+                  className="px-5 py-2.5 bg-[#f97316] text-[#faf0eb] hover:bg-[#9d4300] font-black text-xs rounded-xl shadow transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  ✓ Lưu Thay Đổi
+                  {isSavingProduct ? 'Đang lưu vào Supabase...' : '✓ Lưu Thay Đổi'}
                 </button>
               </div>
             </form>

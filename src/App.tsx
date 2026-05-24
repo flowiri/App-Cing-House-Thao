@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Product, Order, OrderStatus } from './types';
-import { INITIAL_PRODUCTS, INITIAL_ORDERS } from './data';
+import { INITIAL_ORDERS } from './data';
 import DashboardView from './components/DashboardView';
 import OrdersView from './components/OrdersView';
 import NewOrderView from './components/NewOrderView';
@@ -8,7 +8,7 @@ import ProductCatalogView from './components/ProductCatalogView';
 import {
   createProduct,
   deleteProduct,
-  seedProductsIfEmpty,
+  loadProducts,
   updateProduct
 } from './services/products';
 import { LayoutDashboard, Receipt, PlusCircle, Settings, Store, Bell, HelpCircle, LogOut, Menu, X } from 'lucide-react';
@@ -25,7 +25,7 @@ export default function App() {
   const [productsError, setProductsError] = useState<string | null>(null);
   const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
 
-  // Product catalog now comes from Supabase. If the table is empty, seed it with demo products once.
+  // Product catalog comes only from Supabase.
   useEffect(() => {
     let isMounted = true;
 
@@ -33,12 +33,12 @@ export default function App() {
       try {
         setProductsLoading(true);
         setProductsError(null);
-        const supabaseProducts = await seedProductsIfEmpty(INITIAL_PRODUCTS);
+        const supabaseProducts = await loadProducts();
         if (isMounted) setProducts(supabaseProducts);
       } catch (error) {
         console.error('Failed to load products from Supabase:', error);
         if (isMounted) {
-          setProducts(INITIAL_PRODUCTS);
+          setProducts([]);
           setProductsError(getErrorMessage(error));
         }
       } finally {
@@ -106,35 +106,41 @@ export default function App() {
   };
 
   // --- CRUD Product Actions handlers ---
-  const handleAddProduct = async (newProduct: Product) => {
+  const handleAddProduct = async (newProduct: Product): Promise<boolean> => {
     try {
       const savedProduct = await createProduct(newProduct);
       setProducts(currentProducts => [savedProduct, ...currentProducts.filter(p => p.id !== savedProduct.id)]);
       alert(`Đã thêm sản phẩm "${savedProduct.name}" vào Supabase thành công.`);
+      return true;
     } catch (error) {
       console.error('Failed to add product in Supabase:', error);
       alert(`Không thể thêm sản phẩm vào Supabase: ${getErrorMessage(error)}`);
+      return false;
     }
   };
 
-  const handleEditProduct = async (updatedProduct: Product) => {
+  const handleEditProduct = async (updatedProduct: Product): Promise<boolean> => {
     try {
       const savedProduct = await updateProduct(updatedProduct);
       setProducts(currentProducts => currentProducts.map(p => p.id === savedProduct.id ? savedProduct : p));
       alert(`Đã cập nhật thông tin sản phẩm "${savedProduct.name}" trong Supabase.`);
+      return true;
     } catch (error) {
       console.error('Failed to update product in Supabase:', error);
       alert(`Không thể cập nhật sản phẩm trong Supabase: ${getErrorMessage(error)}`);
+      return false;
     }
   };
 
-  const handleDeleteProduct = async (productId: string) => {
+  const handleDeleteProduct = async (productId: string): Promise<boolean> => {
     try {
       await deleteProduct(productId);
       setProducts(currentProducts => currentProducts.filter(p => p.id !== productId));
+      return true;
     } catch (error) {
       console.error('Failed to delete product in Supabase:', error);
       alert(`Không thể xóa sản phẩm khỏi Supabase: ${getErrorMessage(error)}`);
+      return false;
     }
   };
 
@@ -360,7 +366,7 @@ export default function App() {
 
             {productsError && (
               <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-                Supabase product catalog is unavailable. Showing demo products only. Error: {productsError}
+                Supabase product catalog is unavailable. No local product fallback is used. Error: {productsError}
               </div>
             )}
             
