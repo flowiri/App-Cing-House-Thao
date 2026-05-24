@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Product, Order, OrderStatus } from './types';
-import { INITIAL_ORDERS } from './data';
+import { Branch, Product, Order, OrderStatus } from './types';
 import DashboardView from './components/DashboardView';
 import OrdersView from './components/OrdersView';
 import NewOrderView from './components/NewOrderView';
 import ProductCatalogView from './components/ProductCatalogView';
+import { loadBranches } from './services/branches';
+import {
+  createOrder,
+  loadOrders,
+  updateOrder
+} from './services/orders';
 import {
   createProduct,
   deleteProduct,
@@ -19,11 +24,44 @@ function getErrorMessage(error: unknown) {
 
 export default function App() {
   const [activeView, setActiveView] = useState<string>('Dashboard');
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(true);
+  const [branchesError, setBranchesError] = useState<string | null>(null);
   const [productsLoading, setProductsLoading] = useState(true);
   const [productsError, setProductsError] = useState<string | null>(null);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
   const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
+
+  // Branches come only from Supabase.
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSupabaseBranches = async () => {
+      try {
+        setBranchesLoading(true);
+        setBranchesError(null);
+        const supabaseBranches = await loadBranches();
+        if (isMounted) setBranches(supabaseBranches);
+      } catch (error) {
+        console.error('Failed to load branches from Supabase:', error);
+        if (isMounted) {
+          setBranches([]);
+          setBranchesError(getErrorMessage(error));
+        }
+      } finally {
+        if (isMounted) setBranchesLoading(false);
+      }
+    };
+
+    loadSupabaseBranches();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Product catalog comes only from Supabase.
   useEffect(() => {
@@ -53,30 +91,54 @@ export default function App() {
     };
   }, []);
 
-  // Orders are still local-only for Option A.
+  // Orders also come only from Supabase.
   useEffect(() => {
-    const cachedOrders = localStorage.getItem('orderhub_orders');
+    let isMounted = true;
 
-    if (cachedOrders) {
-      setOrders(JSON.parse(cachedOrders));
-    } else {
-      setOrders(INITIAL_ORDERS);
-      localStorage.setItem('orderhub_orders', JSON.stringify(INITIAL_ORDERS));
-    }
+    const loadSupabaseOrders = async () => {
+      try {
+        setOrdersLoading(true);
+        setOrdersError(null);
+        const supabaseOrders = await loadOrders();
+        if (isMounted) setOrders(supabaseOrders);
+      } catch (error) {
+        console.error('Failed to load orders from Supabase:', error);
+        if (isMounted) {
+          setOrders([]);
+          setOrdersError(getErrorMessage(error));
+        }
+      } finally {
+        if (isMounted) setOrdersLoading(false);
+      }
+    };
+
+    loadSupabaseOrders();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const saveOrdersToStorage = (updatedOrders: Order[]) => {
-    setOrders(updatedOrders);
-    localStorage.setItem('orderhub_orders', JSON.stringify(updatedOrders));
-  };
-
   // --- CRUD Order Actions handlers ---
-  const handleAddOrder = (newOrder: Order) => {
-    const updated = [newOrder, ...orders];
-    saveOrdersToStorage(updated);
+  const handleAddOrder = async (newOrder: Order): Promise<boolean> => {
+    try {
+      const savedOrder = await createOrder(newOrder);
+      setOrders(currentOrders => [savedOrder, ...currentOrders.filter(order => order.id !== savedOrder.id)]);
+      return true;
+    } catch (error) {
+      console.error('Failed to add order in Supabase:', error);
+      alert(`Không thể lưu đơn hàng vào Supabase: ${getErrorMessage(error)}`);
+      return false;
+    }
   };
 
-  const handleUpdateOrderStatus = (orderId: string, newStatus: OrderStatus) => {
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: OrderStatus): Promise<boolean> => {
+    const currentOrder = orders.find(order => order.id === orderId);
+    if (!currentOrder) {
+      alert(`Không tìm thấy đơn hàng ${orderId}.`);
+      return false;
+    }
+
     const now = new Date();
     const minStr = String(now.getMinutes()).padStart(2, '0');
     const hrStr = String(now.getHours()).padStart(2, '0');
@@ -84,25 +146,29 @@ export default function App() {
     const monStr = String(now.getMonth() + 1).padStart(2, '0');
     const stamp = `${hrStr}:${minStr} ${dayStr}/${monStr}`;
 
-    const updated = orders.map(order => {
-      if (order.id === orderId) {
-        return {
-          ...order,
-          status: newStatus,
-          history: [
-            {
-              id: `log-live-${Date.now()}`,
-              actor: 'Admin Manager',
-              action: `changed status to ${newStatus}`,
-              timestamp: stamp
-            },
-            ...(order.history || [])
-          ]
-        };
-      }
-      return order;
-    });
-    saveOrdersToStorage(updated);
+    const updatedOrder: Order = {
+      ...currentOrder,
+      status: newStatus,
+      history: [
+        {
+          id: `log-live-${Date.now()}`,
+          actor: 'Admin Manager',
+          action: `changed status to ${newStatus}`,
+          timestamp: stamp
+        },
+        ...(currentOrder.history || [])
+      ]
+    };
+
+    try {
+      const savedOrder = await updateOrder(updatedOrder);
+      setOrders(currentOrders => currentOrders.map(order => order.id === savedOrder.id ? savedOrder : order));
+      return true;
+    } catch (error) {
+      console.error('Failed to update order status in Supabase:', error);
+      alert(`Không thể cập nhật trạng thái đơn hàng trong Supabase: ${getErrorMessage(error)}`);
+      return false;
+    }
   };
 
   // --- CRUD Product Actions handlers ---
@@ -358,6 +424,18 @@ export default function App() {
         {/* --- CENTRAL MAIN CANVAS --- */}
         <main className="flex-1 lg:ml-64 p-4 md:p-6 lg:p-8 overflow-y-auto">
           <div className="max-w-6xl mx-auto space-y-6">
+            {branchesLoading && (
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
+                Loading branches from Supabase...
+              </div>
+            )}
+
+            {branchesError && (
+              <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                Supabase branches are unavailable. No local branch fallback is used. Error: {branchesError}
+              </div>
+            )}
+
             {productsLoading && (
               <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
                 Loading product catalog from Supabase...
@@ -369,9 +447,22 @@ export default function App() {
                 Supabase product catalog is unavailable. No local product fallback is used. Error: {productsError}
               </div>
             )}
+
+            {ordersLoading && (
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
+                Loading orders from Supabase...
+              </div>
+            )}
+
+            {ordersError && (
+              <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                Supabase orders are unavailable. No local order fallback is used. Error: {ordersError}
+              </div>
+            )}
             
             {activeView === 'Dashboard' && (
               <DashboardView 
+                branches={branches}
                 orders={orders} 
                 products={products}
                 onNavigate={(v) => setActiveView(v)}
@@ -380,6 +471,7 @@ export default function App() {
 
             {activeView === 'Orders' && (
               <OrdersView 
+                branches={branches}
                 orders={orders} 
                 onNavigate={(v) => setActiveView(v)}
                 onUpdateOrderStatus={handleUpdateOrderStatus}
@@ -388,6 +480,7 @@ export default function App() {
 
             {activeView === 'New Order' && (
               <NewOrderView 
+                branches={branches}
                 products={products}
                 onAddOrder={handleAddOrder}
                 onNavigate={(v) => setActiveView(v)}

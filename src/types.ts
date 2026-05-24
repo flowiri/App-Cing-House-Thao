@@ -10,6 +10,14 @@ export interface Product {
   image: string;
 }
 
+export interface Branch {
+  id: string;
+  name: string;
+  code?: string;
+  isActive: boolean;
+  sortOrder: number;
+}
+
 export type OrderStatus = 'NEW' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
 
 export interface OrderItem {
@@ -36,7 +44,7 @@ export interface Order {
   customerName: string;
   customerPhone: string;
   customerEmail?: string;
-  branch: string; // e.g. "Quận 1", "Quận 3", "Bình Thạnh"
+  branch: string; // e.g. "Cing House Võ Cường", "Cing House Nguyễn Gia Thiều"
   channel: string; // e.g. "Facebook", "Instagram", "Zalo", "GrabFood", "Dine-In", "Takeaway", "UberEats", "Direct Message (IG)"
   items: OrderItem[];
   subtotal: number;

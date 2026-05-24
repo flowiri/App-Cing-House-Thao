@@ -1,15 +1,50 @@
 import React, { useState } from 'react';
-import { Order, Product } from '../types';
+import { Branch, Order, Product } from '../types';
 import { TrendingUp, ShoppingBag, CheckCircle, BarChart3, Store } from 'lucide-react';
 
 interface DashboardViewProps {
+  branches: Branch[];
   orders: Order[];
   products: Product[];
   onNavigate: (view: string) => void;
 }
 
-export default function DashboardView({ orders, products, onNavigate }: DashboardViewProps) {
+export default function DashboardView({ branches, orders, products, onNavigate }: DashboardViewProps) {
   const [selectedRange, setSelectedRange] = useState<'today' | 'week' | 'month'>('week');
+
+  const getBranchCode = (branch: Branch, index: number) => {
+    if (branch.code) return branch.code;
+    const initials = branch.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(word => word[0])
+      .join('')
+      .slice(0, 3)
+      .toUpperCase();
+
+    return initials || `B${index + 1}`;
+  };
+
+  const formatCurrency = (num: number) => {
+    return new Intl.NumberFormat('vi-VN').format(num) + ' đ';
+  };
+
+  const branchStats = branches.map((branch, index) => {
+    const branchOrders = orders.filter(order => order.branch === branch.name);
+    const revenue = branchOrders
+      .filter(order => order.status === 'COMPLETED' || order.status === 'PROCESSING')
+      .reduce((sum, order) => sum + order.total, 0);
+    const averageOrderValue = branchOrders.length > 0 ? Math.round(revenue / branchOrders.length) : 0;
+
+    return {
+      name: branch.name,
+      code: getBranchCode(branch, index),
+      orders: branchOrders.length,
+      revenue: formatCurrency(revenue),
+      avg: formatCurrency(averageOrderValue),
+      status: index === 0 ? 'TOP PERFORMER' : 'STABLE'
+    };
+  });
 
   // Realistic fallback analytics matching Mock screenshots
   const getAnalytics = () => {
@@ -23,11 +58,6 @@ export default function DashboardView({ orders, products, onNavigate }: Dashboar
           growthText: 'Since yesterday',
           barHeights: [20, 45, 60, 40, 55, 90, 75],
           amounts: ['120M', '220M', '280M', '200M', '260M', '400M', '350M'],
-          branches: [
-            { name: 'Quận 1', code: 'Q1', orders: 254, revenue: '78,200,000 đ', avg: '308,000 đ', status: 'TOP PERFORMER', color: 'orange' },
-            { name: 'Quận 3', code: 'Q3', orders: 198, revenue: '59,800,000 đ', avg: '302,000 đ', status: 'STABLE', color: 'blue' },
-            { name: 'Bình Thạnh', code: 'BT', orders: 172, revenue: '47,400,000 đ', avg: '275,000 đ', status: 'GROWING', color: 'purple' },
-          ]
         };
       case 'month':
         return {
@@ -38,11 +68,6 @@ export default function DashboardView({ orders, products, onNavigate }: Dashboar
           growthText: 'Steady Increase',
           barHeights: [70, 75, 80, 85, 65, 95, 90],
           amounts: ['750M', '800M', '850M', '900M', '700M', '1.1B', '1.0B'],
-          branches: [
-            { name: 'Quận 1', code: 'Q1', orders: 7852, revenue: '2,242,000,000 đ', avg: '285,000 đ', status: 'TOP PERFORMER', color: 'orange' },
-            { name: 'Quận 3', code: 'Q3', orders: 6124, revenue: '1,684,000,000 đ', avg: '275,000 đ', status: 'STABLE', color: 'blue' },
-            { name: 'Bình Thạnh', code: 'BT', orders: 5366, revenue: '1,368,800,000 đ', avg: '255,000 đ', status: 'GROWING', color: 'purple' },
-          ]
         };
       case 'week':
       default:
@@ -54,11 +79,6 @@ export default function DashboardView({ orders, products, onNavigate }: Dashboar
           growthText: 'Steady Increase',
           barHeights: [45, 55, 65, 80, 50, 95, 75],
           amounts: ['150M', '180M', '240M', '380M', '210M', '450M', '330M'],
-          branches: [
-            { name: 'Quận 1', code: 'Q1', orders: 1942, revenue: '542,000,000 đ', avg: '279,000 đ', status: 'TOP PERFORMER', color: 'orange' },
-            { name: 'Quận 3', code: 'Q3', orders: 1520, revenue: '412,000,000 đ', avg: '271,000 đ', status: 'STABLE', color: 'blue' },
-            { name: 'Bình Thạnh', code: 'BT', orders: 1359, revenue: '330,500,000 đ', avg: '243,000 đ', status: 'GROWING', color: 'purple' },
-          ]
         };
     }
   };
@@ -69,10 +89,6 @@ export default function DashboardView({ orders, products, onNavigate }: Dashboar
   const totalLiveRevenue = orders
     .filter(o => o.status === 'COMPLETED' || o.status === 'PROCESSING')
     .reduce((sum, o) => sum + o.total, 0);
-
-  const formatCurrency = (num: number) => {
-    return new Intl.NumberFormat('vi-VN').format(num) + ' đ';
-  };
 
   return (
     <div className="space-y-8 animate-fade-in font-sans">
@@ -345,15 +361,15 @@ export default function DashboardView({ orders, products, onNavigate }: Dashboar
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-be-vietnam">
-              {currentStats.branches.map((branch) => {
+              {branchStats.map((branch, index) => {
                 let badgeClass = '';
                 if (branch.status === 'TOP PERFORMER') badgeClass = 'bg-green-100 text-green-700';
                 else if (branch.status === 'STABLE') badgeClass = 'bg-blue-100 text-blue-700';
                 else badgeClass = 'bg-orange-100 text-orange-700';
 
                 let avBg = '';
-                if (branch.code === 'Q1') avBg = 'bg-orange-100 text-orange-600';
-                else if (branch.code === 'Q3') avBg = 'bg-blue-100 text-blue-600';
+                if (index % 3 === 0) avBg = 'bg-orange-100 text-orange-600';
+                else if (index % 3 === 1) avBg = 'bg-blue-100 text-blue-600';
                 else avBg = 'bg-purple-100 text-purple-600';
 
                 return (

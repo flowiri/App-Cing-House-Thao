@@ -1,19 +1,21 @@
-import React, { useState } from 'react';
-import { Product, Order, OrderItem, OrderStatus } from '../types';
+import React, { useEffect, useState } from 'react';
+import { Branch, Product, Order, OrderItem, OrderStatus } from '../types';
 import { ShoppingBasket, Search, Plus, Trash, Trash2, HelpCircle, Save, Info } from 'lucide-react';
 
 interface NewOrderViewProps {
+  branches: Branch[];
   products: Product[];
-  onAddOrder: (newOrder: Order) => void;
+  onAddOrder: (newOrder: Order) => Promise<boolean>;
   onNavigate: (view: string) => void;
 }
 
-export default function NewOrderView({ products, onAddOrder, onNavigate }: NewOrderViewProps) {
+export default function NewOrderView({ branches, products, onAddOrder, onNavigate }: NewOrderViewProps) {
   // Core states
-  const [selectedBranch, setSelectedBranch] = useState('Quận 1');
+  const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedChannel, setSelectedChannel] = useState('Facebook');
   const [lineItems, setLineItems] = useState<OrderItem[]>([]);
   const [orderNotes, setOrderNotes] = useState('');
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
   
   // Searching products
   const [productSearchQuery, setProductSearchQuery] = useState('');
@@ -30,6 +32,17 @@ export default function NewOrderView({ products, onAddOrder, onNavigate }: NewOr
   // Computed subtotal
   const computedSubtotal = lineItems.reduce((sum, item) => sum + item.subtotal, 0);
   const computedGrandTotal = computedSubtotal + (computedSubtotal > 0 ? shippingFee : 0);
+
+  useEffect(() => {
+    if (branches.length === 0) {
+      setSelectedBranch('');
+      return;
+    }
+
+    if (!selectedBranch || !branches.some(branch => branch.name === selectedBranch)) {
+      setSelectedBranch(branches[0].name);
+    }
+  }, [branches, selectedBranch]);
 
   // Handle adding product from type-ahead search
   const handleAddProduct = (product: Product) => {
@@ -108,11 +121,16 @@ export default function NewOrderView({ products, onAddOrder, onNavigate }: NewOr
   };
 
   // Submissions handler
-  const handleSaveOrder = (e: React.FormEvent) => {
+  const handleSaveOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (lineItems.length === 0) {
       alert('Vui lòng thêm ít nhất một sản phẩm vào đơn hàng.');
+      return;
+    }
+
+    if (!selectedBranch) {
+      alert('Vui lòng cấu hình ít nhất một chi nhánh trong Supabase trước khi tạo đơn hàng.');
       return;
     }
 
@@ -154,9 +172,16 @@ export default function NewOrderView({ products, onAddOrder, onNavigate }: NewOr
       ]
     };
 
-    onAddOrder(newOrder);
-    alert('Lưu đơn hàng thành công! Trở về danh sách đơn hàng để kiểm tra.');
-    onNavigate('Orders');
+    setIsSavingOrder(true);
+    try {
+      const wasSaved = await onAddOrder(newOrder);
+      if (wasSaved) {
+        alert('Lưu đơn hàng vào Supabase thành công! Trở về danh sách đơn hàng để kiểm tra.');
+        onNavigate('Orders');
+      }
+    } finally {
+      setIsSavingOrder(false);
+    }
   };
 
   const handleDiscard = () => {
@@ -202,13 +227,15 @@ export default function NewOrderView({ products, onAddOrder, onNavigate }: NewOr
                   <select
                     value={selectedBranch}
                     onChange={(e) => setSelectedBranch(e.target.value)}
+                    disabled={branches.length === 0}
                     className="w-full h-12 pl-4 pr-10 rounded-lg border-2 border-slate-200 focus:border-[#f97316] focus:outline-none appearance-none bg-white font-bold text-sm text-slate-800"
                   >
-                    <option value="Quận 1">Quận 1</option>
-                    <option value="Quận 3">Quận 3</option>
-                    <option value="Bình Thạnh">Bình Thạnh</option>
-                    <option value="Downtown Central">Downtown Central</option>
-                    <option value="Uptown Hub">Uptown Hub</option>
+                    {branches.length === 0 && (
+                      <option value="">No branches configured</option>
+                    )}
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.name}>{branch.name}</option>
+                    ))}
                   </select>
                   <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
                 </div>
@@ -401,15 +428,17 @@ export default function NewOrderView({ products, onAddOrder, onNavigate }: NewOr
             <div className="space-y-3 pt-4 border-t border-white/10">
               <button
                 type="submit"
-                className="w-full bg-white text-[#9d4300] font-black pointer-events-auto cursor-pointer hover:bg-orange-50 py-3.5 rounded-xl shadow-md transition-all active:scale-97 text-sm flex items-center justify-center gap-2"
+                disabled={isSavingOrder}
+                className="w-full bg-white text-[#9d4300] font-black pointer-events-auto cursor-pointer hover:bg-orange-50 py-3.5 rounded-xl shadow-md transition-all active:scale-97 text-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Save size={16} />
-                Save Order
+                {isSavingOrder ? 'Saving to Supabase...' : 'Save Order'}
               </button>
               <button
                 type="button"
                 onClick={handleDiscard}
-                className="w-full bg-orange-600/30 text-white font-bold py-3 rounded-xl border border-white/10 hover:bg-orange-600/50 transition-colors text-xs"
+                disabled={isSavingOrder}
+                className="w-full bg-orange-600/30 text-white font-bold py-3 rounded-xl border border-white/10 hover:bg-orange-600/50 transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 Cancel & Discard
               </button>

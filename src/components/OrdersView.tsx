@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { Order, OrderStatus } from '../types';
+import { Branch, Order, OrderStatus } from '../types';
+import { CHANNELS } from '../data';
 import OrderDetailView from './OrderDetailView';
 import { Search, Plus, Filter, Download, ArrowRight, Eye } from 'lucide-react';
 
 interface OrdersViewProps {
+  branches: Branch[];
   orders: Order[];
   onNavigate: (view: string) => void;
-  onUpdateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  onUpdateOrderStatus: (orderId: string, status: OrderStatus) => Promise<boolean>;
 }
 
-export default function OrdersView({ orders, onNavigate, onUpdateOrderStatus }: OrdersViewProps) {
+export default function OrdersView({ branches, orders, onNavigate, onUpdateOrderStatus }: OrdersViewProps) {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [tabFilter, setTabFilter] = useState<OrderStatus | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -137,12 +139,9 @@ export default function OrdersView({ orders, onNavigate, onUpdateOrderStatus }: 
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-bold text-slate-700"
               >
                 <option value="">All Branches</option>
-                <option value="Quận 1">Quận 1</option>
-                <option value="Quận 3">Quận 3</option>
-                <option value="Bình Thạnh">Bình Thạnh</option>
-                <option value="Downtown Central">Downtown Central</option>
-                <option value="Uptown Hub">Uptown Hub</option>
-                <option value="Westside Outlet">Westside Outlet</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.name}>{branch.name}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -153,14 +152,9 @@ export default function OrdersView({ orders, onNavigate, onUpdateOrderStatus }: 
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-bold text-slate-700"
               >
                 <option value="">All Channels</option>
-                <option value="GrabFood">GrabFood</option>
-                <option value="Dine-In">Dine-In</option>
-                <option value="Takeaway">Takeaway</option>
-                <option value="UberEats">UberEats</option>
-                <option value="Facebook">Facebook</option>
-                <option value="Instagram">Instagram</option>
-                <option value="Zalo">Zalo</option>
-                <option value="Direct Message (IG)">Direct Message (IG)</option>
+                {CHANNELS.map((channel) => (
+                  <option key={channel} value={channel}>{channel}</option>
+                ))}
               </select>
             </div>
             {(branchFilter || channelFilter) && (

@@ -1,56 +1,40 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Order, OrderStatus } from '../types';
 import { ArrowLeft, Printer, CheckCircle, PersonStanding, Info, Image as ImageIcon, History, ClipboardCheck } from 'lucide-react';
 
 interface OrderDetailViewProps {
   order: Order;
   onBack: () => void;
-  onUpdateStatus: (orderId: string, newStatus: OrderStatus) => void;
+  onUpdateStatus: (orderId: string, newStatus: OrderStatus) => Promise<boolean>;
 }
 
 export default function OrderDetailView({ order, onBack, onUpdateStatus }: OrderDetailViewProps) {
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus>(order.status);
   const [historyTrail, setHistoryTrail] = useState(order.history || []);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-  const handleStatusChangeSubmit = () => {
-    // Perform update
-    onUpdateStatus(order.id, selectedStatus);
+  useEffect(() => {
+    setSelectedStatus(order.status);
+    setHistoryTrail(order.history || []);
+  }, [order.id, order.status, order.history]);
 
-    // Update internal log visualization
-    const now = new Date();
-    const minStr = String(now.getMinutes()).padStart(2, '0');
-    const hrStr = String(now.getHours()).padStart(2, '0');
-    const dayStr = String(now.getDate()).padStart(2, '0');
-    const monStr = String(now.getMonth() + 1).padStart(2, '0');
-
-    const newLog = {
-      id: `log-live-${Date.now()}`,
-      actor: 'Admin Manager',
-      action: `changed status to ${selectedStatus}`,
-      timestamp: `${hrStr}:${minStr} ${dayStr}/${monStr}`
-    };
-
-    setHistoryTrail([newLog, ...historyTrail]);
+  const handleStatusChangeSubmit = async () => {
+    setIsUpdatingStatus(true);
+    try {
+      await onUpdateStatus(order.id, selectedStatus);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
-  const handleMarkReady = () => {
-    onUpdateStatus(order.id, 'COMPLETED');
-    setSelectedStatus('COMPLETED');
-    
-    const now = new Date();
-    const minStr = String(now.getMinutes()).padStart(2, '0');
-    const hrStr = String(now.getHours()).padStart(2, '0');
-    const dayStr = String(now.getDate()).padStart(2, '0');
-    const monStr = String(now.getMonth() + 1).padStart(2, '0');
-
-    const newLog = {
-      id: `log-live-ready-${Date.now()}`,
-      actor: 'Admin Manager',
-      action: `marked order as READY / COMPLETED`,
-      timestamp: `${hrStr}:${minStr} ${dayStr}/${monStr}`
-    };
-
-    setHistoryTrail([newLog, ...historyTrail]);
+  const handleMarkReady = async () => {
+    setIsUpdatingStatus(true);
+    try {
+      const wasUpdated = await onUpdateStatus(order.id, 'COMPLETED');
+      if (wasUpdated) setSelectedStatus('COMPLETED');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
   const formatMoney = (num: number) => {
@@ -85,18 +69,20 @@ export default function OrderDetailView({ order, onBack, onUpdateStatus }: Order
           <p className="text-slate-400 text-xs font-medium">Placed on {order.placedTimeFull}</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
-          <button 
-            onClick={() => window.print()}
-            className="flex-1 md:flex-none px-5 py-2.5 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 text-xs"
-          >
+            <button 
+              onClick={() => window.print()}
+              disabled={isUpdatingStatus}
+              className="flex-1 md:flex-none px-5 py-2.5 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 text-xs"
+            >
             <Printer size={16} /> Print Receipt
           </button>
           {order.status !== 'COMPLETED' && (
             <button 
               onClick={handleMarkReady}
-              className="flex-1 md:flex-none px-5 py-2.5 bg-[#9d4300] hover:bg-[#f97316] text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-2 text-xs shadow-md shadow-orange-100"
+              disabled={isUpdatingStatus}
+              className="flex-1 md:flex-none px-5 py-2.5 bg-[#9d4300] hover:bg-[#f97316] text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-2 text-xs shadow-md shadow-orange-100 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <CheckCircle size={16} /> Mark Ready
+              <CheckCircle size={16} /> {isUpdatingStatus ? 'Updating...' : 'Mark Ready'}
             </button>
           )}
         </div>
@@ -231,6 +217,7 @@ export default function OrderDetailView({ order, onBack, onUpdateStatus }: Order
                 <select 
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value as OrderStatus)}
+                  disabled={isUpdatingStatus}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#9d4300]"
                 >
                   <option value="NEW">New</option>
@@ -241,9 +228,10 @@ export default function OrderDetailView({ order, onBack, onUpdateStatus }: Order
               </div>
               <button 
                 onClick={handleStatusChangeSubmit}
-                className="w-full py-2.5 bg-[#f97316] hover:bg-[#9d4300] text-white text-xs font-black rounded-lg shadow transition-colors"
+                disabled={isUpdatingStatus}
+                className="w-full py-2.5 bg-[#f97316] hover:bg-[#9d4300] text-white text-xs font-black rounded-lg shadow transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Confirm Update
+                {isUpdatingStatus ? 'Saving to Supabase...' : 'Confirm Update'}
               </button>
             </div>
           </div>
