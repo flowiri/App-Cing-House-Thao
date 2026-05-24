@@ -5,25 +5,57 @@ import DashboardView from './components/DashboardView';
 import OrdersView from './components/OrdersView';
 import NewOrderView from './components/NewOrderView';
 import ProductCatalogView from './components/ProductCatalogView';
+import {
+  createProduct,
+  deleteProduct,
+  seedProductsIfEmpty,
+  updateProduct
+} from './services/products';
 import { LayoutDashboard, Receipt, PlusCircle, Settings, Store, Bell, HelpCircle, LogOut, Menu, X } from 'lucide-react';
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export default function App() {
   const [activeView, setActiveView] = useState<string>('Dashboard');
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState<string | null>(null);
   const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
 
-  // Load datasets initially with persistent fallback state inside LocalStorage
+  // Product catalog now comes from Supabase. If the table is empty, seed it with demo products once.
   useEffect(() => {
-    const cachedProducts = localStorage.getItem('orderhub_products');
-    const cachedOrders = localStorage.getItem('orderhub_orders');
+    let isMounted = true;
 
-    if (cachedProducts) {
-      setProducts(JSON.parse(cachedProducts));
-    } else {
-      setProducts(INITIAL_PRODUCTS);
-      localStorage.setItem('orderhub_products', JSON.stringify(INITIAL_PRODUCTS));
-    }
+    const loadSupabaseProducts = async () => {
+      try {
+        setProductsLoading(true);
+        setProductsError(null);
+        const supabaseProducts = await seedProductsIfEmpty(INITIAL_PRODUCTS);
+        if (isMounted) setProducts(supabaseProducts);
+      } catch (error) {
+        console.error('Failed to load products from Supabase:', error);
+        if (isMounted) {
+          setProducts(INITIAL_PRODUCTS);
+          setProductsError(getErrorMessage(error));
+        }
+      } finally {
+        if (isMounted) setProductsLoading(false);
+      }
+    };
+
+    loadSupabaseProducts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Orders are still local-only for Option A.
+  useEffect(() => {
+    const cachedOrders = localStorage.getItem('orderhub_orders');
 
     if (cachedOrders) {
       setOrders(JSON.parse(cachedOrders));
@@ -32,12 +64,6 @@ export default function App() {
       localStorage.setItem('orderhub_orders', JSON.stringify(INITIAL_ORDERS));
     }
   }, []);
-
-  // Update localStorage when lists change
-  const saveProductsToStorage = (updatedProducts: Product[]) => {
-    setProducts(updatedProducts);
-    localStorage.setItem('orderhub_products', JSON.stringify(updatedProducts));
-  };
 
   const saveOrdersToStorage = (updatedOrders: Order[]) => {
     setOrders(updatedOrders);
@@ -80,21 +106,36 @@ export default function App() {
   };
 
   // --- CRUD Product Actions handlers ---
-  const handleAddProduct = (newProduct: Product) => {
-    const updated = [newProduct, ...products];
-    saveProductsToStorage(updated);
-    alert(`Đã thêm sản phẩm "${newProduct.name}" vào danh mục thành công.`);
+  const handleAddProduct = async (newProduct: Product) => {
+    try {
+      const savedProduct = await createProduct(newProduct);
+      setProducts(currentProducts => [savedProduct, ...currentProducts.filter(p => p.id !== savedProduct.id)]);
+      alert(`Đã thêm sản phẩm "${savedProduct.name}" vào Supabase thành công.`);
+    } catch (error) {
+      console.error('Failed to add product in Supabase:', error);
+      alert(`Không thể thêm sản phẩm vào Supabase: ${getErrorMessage(error)}`);
+    }
   };
 
-  const handleEditProduct = (updatedProduct: Product) => {
-    const updated = products.map(p => p.id === updatedProduct.id ? updatedProduct : p);
-    saveProductsToStorage(updated);
-    alert(`Đã cập nhật thông tin sản phẩm "${updatedProduct.name}".`);
+  const handleEditProduct = async (updatedProduct: Product) => {
+    try {
+      const savedProduct = await updateProduct(updatedProduct);
+      setProducts(currentProducts => currentProducts.map(p => p.id === savedProduct.id ? savedProduct : p));
+      alert(`Đã cập nhật thông tin sản phẩm "${savedProduct.name}" trong Supabase.`);
+    } catch (error) {
+      console.error('Failed to update product in Supabase:', error);
+      alert(`Không thể cập nhật sản phẩm trong Supabase: ${getErrorMessage(error)}`);
+    }
   };
 
-  const handleDeleteProduct = (productId: string) => {
-    const updated = products.filter(p => p.id !== productId);
-    saveProductsToStorage(updated);
+  const handleDeleteProduct = async (productId: string) => {
+    try {
+      await deleteProduct(productId);
+      setProducts(currentProducts => currentProducts.filter(p => p.id !== productId));
+    } catch (error) {
+      console.error('Failed to delete product in Supabase:', error);
+      alert(`Không thể xóa sản phẩm khỏi Supabase: ${getErrorMessage(error)}`);
+    }
   };
 
   return (
@@ -311,6 +352,17 @@ export default function App() {
         {/* --- CENTRAL MAIN CANVAS --- */}
         <main className="flex-1 lg:ml-64 p-4 md:p-6 lg:p-8 overflow-y-auto">
           <div className="max-w-6xl mx-auto space-y-6">
+            {productsLoading && (
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
+                Loading product catalog from Supabase...
+              </div>
+            )}
+
+            {productsError && (
+              <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+                Supabase product catalog is unavailable. Showing demo products only. Error: {productsError}
+              </div>
+            )}
             
             {activeView === 'Dashboard' && (
               <DashboardView 
