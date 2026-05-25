@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product } from '../types';
-import { Search, Plus, Filter, Edit3, Trash2, X, SlidersHorizontal, CheckCircle2, AlertTriangle, Play, Pause } from 'lucide-react';
+import { imageFileToDataUrl } from '../utils/images';
+import { Search, Plus, Edit3, Trash2, X, CheckCircle2, UploadCloud, Image as ImageIcon } from 'lucide-react';
 
 interface ProductCatalogViewProps {
   products: Product[];
@@ -25,21 +26,38 @@ export default function ProductCatalogView({
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [isReadingProductImage, setIsReadingProductImage] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
 
   // Form states for Add/Edit
   const [formName, setFormName] = useState('');
   const [formSKU, setFormSKU] = useState('');
-  const [formCategory, setFormCategory] = useState('drinks');
+  const [formCategory, setFormCategory] = useState('');
   const [formPrice, setFormPrice] = useState(0);
   const [formStatus, setFormStatus] = useState<'active' | 'inactive'>('active');
   const [formImage, setFormImage] = useState('');
+
+  const categoryOptions = Array.from(
+    new Map(
+      (
+        products
+          .map(product => [product.category, product.categoryName || product.category] as const)
+          .filter(([category]) => Boolean(category)).length > 0
+          ? products.map(product => [product.category, product.categoryName || product.category] as const).filter(([category]) => Boolean(category))
+          : [['other', 'Khác'] as const]
+      )
+    ).entries()
+  ).map(([category, categoryName]) => ({ category, categoryName }));
+
+  const getCategoryName = (category: string) => {
+    return categoryOptions.find(option => option.category === category)?.categoryName || category;
+  };
 
   // Computed statistics over catalog
   const totalProducts = products.length;
   const activeProducts = products.filter(p => p.status === 'active').length;
   const inactiveProducts = products.filter(p => p.status === 'inactive').length;
-  const priceAlertCount = products.filter(p => p.price <= 30000).length; // demo logic
+  const productsWithImages = products.filter(product => Boolean(product.image)).length;
 
   // Filtered lists
   const filteredProducts = products.filter(p => {
@@ -59,27 +77,57 @@ export default function ProductCatalogView({
   // Actions trigger: Create Add product
   const handleOpenAdd = () => {
     setFormName('');
-    setFormSKU('PROD-' + Math.floor(100 + Math.random() * 900));
-    setFormCategory('drinks');
-    setFormPrice(45000);
+    setFormSKU('');
+    setFormCategory(categoryOptions[0]?.category || 'other');
+    setFormPrice(0);
     setFormStatus('active');
     setFormImage('');
     setShowAddModal(true);
   };
 
+  const handleProductImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    setIsReadingProductImage(true);
+    try {
+      const dataUrl = await imageFileToDataUrl(file, {
+        maxInputBytes: 5 * 1024 * 1024,
+        maxWidth: 1000,
+        maxHeight: 1000,
+        quality: 0.82
+      });
+      setFormImage(dataUrl);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+    } finally {
+      input.value = '';
+      setIsReadingProductImage(false);
+    }
+  };
+
   const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName) {
-      alert('Vui lòng điền tên sản phẩm.');
+    const trimmedSku = formSKU.trim();
+    const trimmedName = formName.trim();
+
+    if (!trimmedSku || !trimmedName) {
+      alert('Vui lòng điền đầy đủ mã món và tên sản phẩm.');
+      return;
+    }
+
+    if (products.some(product => product.sku.toLowerCase() === trimmedSku.toLowerCase() || product.id.toLowerCase() === trimmedSku.toLowerCase())) {
+      alert(`Mã món ${trimmedSku} đã tồn tại trong danh mục. Vui lòng chỉnh sửa sản phẩm hiện có hoặc chọn mã khác.`);
       return;
     }
 
     const newProd: Product = {
-      id: formSKU,
-      sku: formSKU,
-      name: formName,
-      category: formCategory,
-      categoryName: formCategory === 'drinks' ? 'Đồ uống' : formCategory === 'food' ? 'Thức ăn' : 'Tráng miệng',
+      id: trimmedSku,
+      sku: trimmedSku,
+      name: trimmedName,
+      category: formCategory || categoryOptions[0]?.category || 'other',
+      categoryName: getCategoryName(formCategory || categoryOptions[0]?.category || 'other'),
       price: formPrice,
       currency: 'VND',
       status: formStatus,
@@ -110,13 +158,18 @@ export default function ProductCatalogView({
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct) return;
+    const trimmedName = formName.trim();
+    if (!trimmedName) {
+      alert('Vui lòng điền tên sản phẩm.');
+      return;
+    }
 
     const updated: Product = {
       ...selectedProduct,
-      name: formName,
+      name: trimmedName,
       sku: formSKU,
       category: formCategory,
-      categoryName: formCategory === 'drinks' ? 'Đồ uống' : formCategory === 'food' ? 'Thức ăn' : 'Tráng miệng',
+      categoryName: getCategoryName(formCategory),
       price: formPrice,
       status: formStatus,
       image: formImage
@@ -146,6 +199,55 @@ export default function ProductCatalogView({
   const formatMoney = (num: number) => {
     return new Intl.NumberFormat('vi-VN').format(num) + ' đ';
   };
+
+  const renderImageUploadField = () => (
+    <div>
+      <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider mb-1">Ảnh sản phẩm</label>
+      <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
+        {formImage ? (
+          <div className="flex items-center gap-3">
+            <div className="w-20 h-20 rounded-xl overflow-hidden bg-white border border-slate-200 flex items-center justify-center shrink-0">
+              <img src={formImage} alt="Ảnh sản phẩm" className="w-full h-full object-cover" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-black text-green-700">Đã chọn ảnh</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Ảnh sẽ được lưu cùng bản ghi sản phẩm trong Supabase.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-4">
+            <UploadCloud className="mx-auto text-slate-300 mb-2" size={32} />
+            <p className="text-xs font-bold text-slate-600">Chưa có ảnh sản phẩm</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Hỗ trợ JPG/PNG/WEBP, tối đa 5MB.</p>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 text-xs font-black text-[#9d4300] cursor-pointer hover:bg-orange-50 transition-colors">
+            <UploadCloud size={14} />
+            {isReadingProductImage ? 'Đang đọc ảnh...' : formImage ? 'Đổi ảnh' : 'Upload ảnh'}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={isSavingProduct || isReadingProductImage}
+              onChange={handleProductImageChange}
+            />
+          </label>
+          {formImage && (
+            <button
+              type="button"
+              onClick={() => setFormImage('')}
+              disabled={isSavingProduct || isReadingProductImage}
+              className="px-3 py-2 rounded-lg bg-red-50 text-red-600 text-xs font-black hover:bg-red-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Xóa ảnh
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 font-sans select-none animate-fade-in pb-16">
@@ -199,12 +301,14 @@ export default function ProductCatalogView({
           </div>
         </div>
 
-        {/* Warn product updates */}
+        {/* Product image coverage */}
         <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
-          <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Cần cập nhật giá</div>
+          <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Có ảnh sản phẩm</div>
           <div className="flex items-end justify-between">
-            <span className="text-2xl font-black text-red-600">{priceAlertCount}</span>
-            <AlertTriangle size={20} className="text-red-500 opacity-60" />
+            <span className="text-2xl font-black text-green-600">
+              {productsWithImages}
+            </span>
+            <ImageIcon size={20} className="text-green-500 opacity-70" />
           </div>
         </div>
       </div>
@@ -219,7 +323,7 @@ export default function ProductCatalogView({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm tên món ăn hoặc mã vạch SKU..."
+              placeholder="Tìm tên món ăn hoặc mã món..."
               className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-[#f97316] focus:outline-none text-xs text-slate-800"
             />
           </div>
@@ -232,9 +336,9 @@ export default function ProductCatalogView({
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 focus:outline-none"
             >
               <option value="">Tất cả Danh mục</option>
-              <option value="drinks">Đồ uống</option>
-              <option value="food">Thức ăn</option>
-              <option value="dessert">Tráng miệng</option>
+              {categoryOptions.map(option => (
+                <option key={option.category} value={option.category}>{option.categoryName}</option>
+              ))}
             </select>
           </div>
 
@@ -261,7 +365,7 @@ export default function ProductCatalogView({
               }}
               className="text-xs font-bold text-[#faf0eb] bg-[#9d4300]/95 hover:bg-[#9d4300] px-3.5 py-2.5 rounded-lg active:scale-95 shadow transition-all whitespace-nowrap"
             >
-              Reset Filters
+              Xóa bộ lọc
             </button>
           )}
         </div>
@@ -274,7 +378,7 @@ export default function ProductCatalogView({
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-[#fffcfb] border-b border-slate-100">
-                  <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-slate-400">ID / SKU</th>
+                  <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-slate-400">Mã món</th>
                   <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-slate-400">Hình ảnh</th>
                   <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-slate-400">Tên Sản phẩm</th>
                   <th className="px-6 py-4 font-bold text-[10px] uppercase tracking-wider text-slate-400">Danh mục</th>
@@ -317,7 +421,7 @@ export default function ProductCatalogView({
                     {/* Category */}
                     <td className="px-6 py-4 whitespace-nowrap text-slate-600">
                       <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full text-[11px] font-bold">
-                        {product.categoryName}
+                        {product.categoryName || getCategoryName(product.category)}
                       </span>
                     </td>
 
@@ -413,19 +517,20 @@ export default function ProductCatalogView({
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="ví dụ: Sinh tố bơ dừa"
+                  placeholder="ví dụ: TRÂN CHÂU TRẮNG TRÒN(9K)"
                   className="w-full text-xs font-bold border border-slate-200 rounded-xl p-3 text-slate-800 focus:border-[#f97316] focus:outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider mb-1">SKU (ID) Code</label>
+                  <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider mb-1">Mã món *</label>
                   <input
                     type="text"
                     required
                     value={formSKU}
                     onChange={(e) => setFormSKU(e.target.value)}
+                    placeholder="ví dụ: CTTT"
                     className="w-full text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none"
                   />
                 </div>
@@ -436,9 +541,9 @@ export default function ProductCatalogView({
                     onChange={(e) => setFormCategory(e.target.value)}
                     className="w-full text-xs font-bold border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none"
                   >
-                    <option value="drinks">Đồ uống</option>
-                    <option value="food">Thức ăn</option>
-                    <option value="dessert">Tráng miệng</option>
+                    {categoryOptions.map(option => (
+                      <option key={option.category} value={option.category}>{option.categoryName}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -479,21 +584,7 @@ export default function ProductCatalogView({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider mb-1">Visual Asset Image URL </label>
-                <select
-                  value={formImage}
-                  onChange={(e) => setFormImage(e.target.value)}
-                  className="w-full text-xs font-bold border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none"
-                >
-                  <option value="">Không dùng ảnh</option>
-                  <option value="https://lh3.googleusercontent.com/aida-public/AB6AXuCmfbVp1o8Tafy_WFoLeVfrcomou-XGu4kHEZhr6JLp9cG8uGCtxdMlKBWrPlCYrpQzYm1nOIVdsh0XBIYxZRMHaFAij7QHeg0NjkAhr9yzcfEKTNaDuwKmboM4w2DPFdkbEoAhzkNQJkw5IdGm3G10cMDdo73seSU0iM3QOFQmpHX4PyuinmEuLRDOBUF_NaQzSMeTv1DetgRB2MYmSe3bRxd-37p0kpo_nK7a4ojwZj_yUhKxC6aZok41U4zHwIe6BsN9eCkid5E">Matcha Latte (F&B Real Resource)</option>
-                  <option value="https://lh3.googleusercontent.com/aida-public/AB6AXuCGdQjddBQCGlmxKqdirfKbFGPICQLhGfyU0OWVfuSe46OsBray4dxoACsIz9jeSA2ywRlC9O4LWwQdb9RLjACfEk_EyMT6qYjy_wB0zykK6UwYWsmo-o4AcODkVZu0Hdj1Rdvwky9Ga0MXARLBnCe0_glAn95kx-rMpvnvS_nDZLFy-jbKW01OqJ4dX0F7p64XlZjQVZo6kX0eBM-q_08xV-hVVh9uxuhrwCTbcQyz6ppmBp_BQWwLgFqtqRM_c0o6HMJMDDjRXqw">Cà phê Sữa Đá (F&B Real Resource)</option>
-                  <option value="https://lh3.googleusercontent.com/aida-public/AB6AXuC-nB0Nl_tfMv0lEEWhxHQ_ETGervAFI4zASEMpTQQGy1KcUbFn7qKLb8NPv_0HSo0GsQB5PEyYjrPHC4ExtCrXFP9OLfHBGdCkzK9xmRhjhTiIz8-6u9X_lx7yeKRUReQnrtgMPpk3Y2M8UcvH0hw52yU8lV5WZ6r9PsdqvEeO5i8S6i8zYWqMnrW_apsaAqMgM_EqqBbj4gAE0pazm6oQJFa-LO71UaP4XJP4OMwiFPOVHR9eqcdrp-yyqga8VxKxcGtrHgeQ62E">Bánh mì thịt nướng (F&B Real Resource)</option>
-                  <option value="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3">Gourmet Food Bowl (Unsplash Asset)</option>
-                  <option value="https://images.unsplash.com/photo-1551024601-bec78aea704b?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3">Sweet Glazed Donuts (Unsplash Asset)</option>
-                </select>
-              </div>
+              {renderImageUploadField()}
 
               <div className="pt-4 border-t border-slate-100 flex justify-end gap-2.5">
                 <button
@@ -530,7 +621,7 @@ export default function ProductCatalogView({
             </button>
             <div>
               <h3 className="text-lg font-black text-slate-900">Chỉnh sửa Sản phẩm</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Mã vạch và thông số: SKU {selectedProduct?.sku}</p>
+              <p className="text-xs text-slate-400 mt-0.5">Mã món chuẩn: {selectedProduct?.sku}</p>
             </div>
 
             <form onSubmit={handleSaveEdit} className="space-y-4">
@@ -547,7 +638,7 @@ export default function ProductCatalogView({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider mb-1">SKU (ID) Code</label>
+                  <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider mb-1">Mã món</label>
                   <input
                     type="text"
                     disabled
@@ -562,9 +653,9 @@ export default function ProductCatalogView({
                     onChange={(e) => setFormCategory(e.target.value)}
                     className="w-full text-xs font-bold border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none"
                   >
-                    <option value="drinks">Đồ uống</option>
-                    <option value="food">Thức ăn</option>
-                    <option value="dessert">Tráng miệng</option>
+                    {categoryOptions.map(option => (
+                      <option key={option.category} value={option.category}>{option.categoryName}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -604,15 +695,7 @@ export default function ProductCatalogView({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider mb-1">Visual Asset Image URL </label>
-                <input
-                  type="text"
-                  value={formImage}
-                  onChange={(e) => setFormImage(e.target.value)}
-                  className="w-full text-xs font-bold border border-slate-200 rounded-xl p-3 text-slate-800 focus:outline-none"
-                />
-              </div>
+              {renderImageUploadField()}
 
               <div className="pt-4 border-t border-slate-100 flex justify-end gap-2.5">
                 <button

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Branch, Product, Order, OrderStatus } from './types';
+import { Branch, Product, Order } from './types';
 import DashboardView from './components/DashboardView';
 import OrdersView from './components/OrdersView';
 import NewOrderView from './components/NewOrderView';
@@ -7,8 +7,8 @@ import ProductCatalogView from './components/ProductCatalogView';
 import { loadBranches } from './services/branches';
 import {
   createOrder,
+  deleteOrder,
   loadOrders,
-  updateOrder
 } from './services/orders';
 import {
   createProduct,
@@ -132,41 +132,14 @@ export default function App() {
     }
   };
 
-  const handleUpdateOrderStatus = async (orderId: string, newStatus: OrderStatus): Promise<boolean> => {
-    const currentOrder = orders.find(order => order.id === orderId);
-    if (!currentOrder) {
-      alert(`Không tìm thấy đơn hàng ${orderId}.`);
-      return false;
-    }
-
-    const now = new Date();
-    const minStr = String(now.getMinutes()).padStart(2, '0');
-    const hrStr = String(now.getHours()).padStart(2, '0');
-    const dayStr = String(now.getDate()).padStart(2, '0');
-    const monStr = String(now.getMonth() + 1).padStart(2, '0');
-    const stamp = `${hrStr}:${minStr} ${dayStr}/${monStr}`;
-
-    const updatedOrder: Order = {
-      ...currentOrder,
-      status: newStatus,
-      history: [
-        {
-          id: `log-live-${Date.now()}`,
-          actor: 'Admin Manager',
-          action: `changed status to ${newStatus}`,
-          timestamp: stamp
-        },
-        ...(currentOrder.history || [])
-      ]
-    };
-
+  const handleDeleteOrder = async (orderId: string): Promise<boolean> => {
     try {
-      const savedOrder = await updateOrder(updatedOrder);
-      setOrders(currentOrders => currentOrders.map(order => order.id === savedOrder.id ? savedOrder : order));
+      await deleteOrder(orderId);
+      setOrders(currentOrders => currentOrders.filter(order => order.id !== orderId));
       return true;
     } catch (error) {
-      console.error('Failed to update order status in Supabase:', error);
-      alert(`Không thể cập nhật trạng thái đơn hàng trong Supabase: ${getErrorMessage(error)}`);
+      console.error('Failed to delete order in Supabase:', error);
+      alert(`Không thể xóa đơn hàng khỏi Supabase: ${getErrorMessage(error)}`);
       return false;
     }
   };
@@ -474,7 +447,7 @@ export default function App() {
                 branches={branches}
                 orders={orders} 
                 onNavigate={(v) => setActiveView(v)}
-                onUpdateOrderStatus={handleUpdateOrderStatus}
+                onDeleteOrder={handleDeleteOrder}
               />
             )}
 

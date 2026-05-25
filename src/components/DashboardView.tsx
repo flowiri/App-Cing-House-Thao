@@ -104,13 +104,14 @@ export default function DashboardView({ branches, orders, products, onNavigate }
 
     const currentOrders = orders.filter(order => isInBounds(order, bounds));
     const previousOrders = orders.filter(order => isInBounds(order, previousBounds));
-    const revenueOrders = currentOrders.filter(order => order.status !== 'CANCELLED');
-    const previousRevenueOrders = previousOrders.filter(order => order.status !== 'CANCELLED');
+    const revenueOrders = currentOrders;
+    const previousRevenueOrders = previousOrders;
 
     const totalRevenue = revenueOrders.reduce((sum, order) => sum + order.total, 0);
     const previousRevenue = previousRevenueOrders.reduce((sum, order) => sum + order.total, 0);
-    const completedOrders = currentOrders.filter(order => order.status === 'COMPLETED').length;
-    const completionRate = currentOrders.length > 0 ? (completedOrders / currentOrders.length) * 100 : 0;
+    const billCaptureRate = currentOrders.length > 0
+      ? (currentOrders.filter(order => Boolean(order.screenshot)).length / currentOrders.length) * 100
+      : 0;
     const growthPct = previousRevenue === 0
       ? (totalRevenue > 0 ? 100 : 0)
       : ((totalRevenue - previousRevenue) / previousRevenue) * 100;
@@ -120,7 +121,7 @@ export default function DashboardView({ branches, orders, products, onNavigate }
       orders: currentOrders,
       revenueOrders,
       totalRevenue,
-      completionRate,
+      billCaptureRate,
       growthPct
     };
   }, [orders, selectedRange]);
@@ -133,7 +134,7 @@ export default function DashboardView({ branches, orders, products, onNavigate }
       return orders
         .filter(order => {
           const placedAt = parseOrderDate(order);
-          return placedAt && placedAt >= day && placedAt < end && order.status !== 'CANCELLED';
+          return placedAt && placedAt >= day && placedAt < end;
         })
         .reduce((sum, order) => sum + order.total, 0);
     });
@@ -149,12 +150,11 @@ export default function DashboardView({ branches, orders, products, onNavigate }
   const branchStats = branches.map((branch, index) => {
     const branchOrders = rangeData.orders.filter(order => order.branch === branch.name);
     const revenue = branchOrders
-      .filter(order => order.status !== 'CANCELLED')
       .reduce((sum, order) => sum + order.total, 0);
     const averageOrderValue = branchOrders.length > 0 ? Math.round(revenue / branchOrders.length) : 0;
     const maxBranchRevenue = Math.max(
       ...branches.map(candidate => rangeData.orders
-        .filter(order => order.branch === candidate.name && order.status !== 'CANCELLED')
+        .filter(order => order.branch === candidate.name)
         .reduce((sum, order) => sum + order.total, 0)),
       0
     );
@@ -262,14 +262,14 @@ export default function DashboardView({ branches, orders, products, onNavigate }
 
         <div id="stat-completion" className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between h-36">
           <div className="flex justify-between items-start">
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Completion Rate (%)</span>
+            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Bill Capture Rate (%)</span>
             <span className="bg-purple-50 text-purple-500 p-2 rounded-lg">
               <CheckCircle size={20} />
             </span>
           </div>
           <div className="mt-2">
-            <h3 className="text-2xl font-black text-slate-800">{rangeData.completionRate.toFixed(1)}%</h3>
-            <p className="text-[11px] text-slate-400 font-bold mt-1">Completed / total orders</p>
+            <h3 className="text-2xl font-black text-slate-800">{rangeData.billCaptureRate.toFixed(1)}%</h3>
+            <p className="text-[11px] text-slate-400 font-bold mt-1">Đơn có ảnh bill / tổng đơn</p>
           </div>
         </div>
 
@@ -367,7 +367,7 @@ export default function DashboardView({ branches, orders, products, onNavigate }
                 <th className="px-6 py-4">Orders</th>
                 <th className="px-6 py-4">Revenue (VND)</th>
                 <th className="px-6 py-4">Avg Order Value</th>
-                <th className="px-6 py-4 text-right">Status</th>
+                <th className="px-6 py-4 text-right">Hiệu suất</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-be-vietnam">

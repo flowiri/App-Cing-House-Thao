@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { Branch, Product, Order, OrderItem, OrderStatus } from '../types';
-import { ShoppingBasket, Search, Plus, Trash, Trash2, HelpCircle, Save, Info } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Branch, Product, Order, OrderItem } from '../types';
+import { imageFileToDataUrl } from '../utils/images';
+import { ShoppingBasket, Trash2, Save, UserRound, Phone, UploadCloud } from 'lucide-react';
 
 interface NewOrderViewProps {
   branches: Branch[];
@@ -11,6 +12,8 @@ interface NewOrderViewProps {
 
 export default function NewOrderView({ branches, products, onAddOrder, onNavigate }: NewOrderViewProps) {
   // Core states
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedChannel, setSelectedChannel] = useState('Facebook');
   const [lineItems, setLineItems] = useState<OrderItem[]>([]);
@@ -25,9 +28,11 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
   const [shippingFee, setShippingFee] = useState(15000);
   const [customGrandTotal, setCustomGrandTotal] = useState<string>(''); // if empty, compute standard subtotal + ship fee
   
-  // Mock image upload state
+  // Bill image upload state
+  const billFileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isReadingBillImage, setIsReadingBillImage] = useState(false);
 
   // Computed subtotal
   const computedSubtotal = lineItems.reduce((sum, item) => sum + item.subtotal, 0);
@@ -107,22 +112,52 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
     setIsDragOver(false);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleBillImageFile = async (file: File) => {
+    setIsReadingBillImage(true);
+    try {
+      const dataUrl = await imageFileToDataUrl(file, {
+        maxInputBytes: 5 * 1024 * 1024,
+        maxWidth: 1400,
+        maxHeight: 1400,
+        quality: 0.84
+      });
+      setAttachedImage(dataUrl);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsReadingBillImage(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
-    // Simulate screenshot uploaded
-    setAttachedImage('https://lh3.googleusercontent.com/aida-public/AB6AXuAFROfYpY49XA371zE4lQ1OzjseIuujNWfC-bSlmoYP96TimhS8euGXbYhXZglU8Dl02qt4KTISHxWsufW5coAzLmfhnOYufR7vjc_SnYGqCEFp5Gntr5chEKxF0ZZ7wJKAEiWmobSg0O622fHpMIbuZWNFteC_Pn5Nyg3LpfKJ56BWUI7LVB1fPXjlX9GiAcfks88AZQm5bQyoutVS0BlFX2Vhr7fKAWallvS47sJQmdKEkH-SpHGX6qwVjdMxv4aXNzvyulb50Bk');
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) await handleBillImageFile(file);
   };
 
   const handleTriggerFileSelect = () => {
-    // Select primary simulation screenshot automatically
-    setAttachedImage('https://lh3.googleusercontent.com/aida-public/AB6AXuAFROfYpY49XA371zE4lQ1OzjseIuujNWfC-bSlmoYP96TimhS8euGXbYhXZglU8Dl02qt4KTISHxWsufW5coAzLmfhnOYufR7vjc_SnYGqCEFp5Gntr5chEKxF0ZZ7wJKAEiWmobSg0O622fHpMIbuZWNFteC_Pn5Nyg3LpfKJ56BWUI7LVB1fPXjlX9GiAcfks88AZQm5bQyoutVS0BlFX2Vhr7fKAWallvS47sJQmdKEkH-SpHGX6qwVjdMxv4aXNzvyulb50Bk');
+    billFileInputRef.current?.click();
+  };
+
+  const handleBillInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (file) await handleBillImageFile(file);
+    input.value = '';
   };
 
   // Submissions handler
   const handleSaveOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedCustomerName = customerName.trim();
+    const trimmedCustomerPhone = customerPhone.trim();
+
+    if (!trimmedCustomerName || !trimmedCustomerPhone) {
+      alert('Vui lòng nhập tên khách hàng và số điện thoại.');
+      return;
+    }
 
     if (lineItems.length === 0) {
       alert('Vui lòng thêm ít nhất một sản phẩm vào đơn hàng.');
@@ -154,21 +189,21 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
       id: orderId,
       placedTime: `${monStr} ${dayStr}, ${yrStr}`,
       placedTimeFull: `${monStr} ${dayStr}, ${yrStr} • ${hrStr}:${minStr} ${hrStr >= '12' ? 'PM' : 'AM'}`,
-      customerName: 'Khách hàng Ghi Tay',
-      customerPhone: '+84 908 ' + Math.floor(100000 + Math.random() * 900000),
-      customerEmail: 'manual_customer@orderhub.vn',
+      customerName: trimmedCustomerName,
+      customerPhone: trimmedCustomerPhone,
       branch: selectedBranch,
       channel: selectedChannel,
       items: lineItems,
       subtotal: computedSubtotal,
       shippingFee: computedSubtotal > 0 ? shippingFee : 0,
       total: finalTotal,
-      status: 'NEW',
+      // Giá trị mặc định để tương thích schema Supabase; giao diện order không dùng trạng thái.
+      status: 'COMPLETED',
       notes: orderNotes,
       screenshot: attachedImage || undefined,
       createdBy: 'Admin_Manager_01',
       history: [
-        { id: `log-cr-${Date.now()}`, actor: 'Admin_Manager_01', action: `Order created manually via sales entry terminal`, timestamp: `${hrStr}:${minStr} ${dayStr}/${now.getMonth() + 1}` }
+        { id: `log-cr-${Date.now()}`, actor: 'Admin_Manager_01', action: `Ghi đơn thủ công cho ${trimmedCustomerName}`, timestamp: `${hrStr}:${minStr} ${dayStr}/${now.getMonth() + 1}` }
       ]
     };
 
@@ -186,6 +221,8 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
 
   const handleDiscard = () => {
     if (confirm('Bạn có chắc muốn hủy bỏ toàn bộ nội dung của đơn hàng này?')) {
+      setCustomerName('');
+      setCustomerPhone('');
       setLineItems([]);
       setOrderNotes('');
       setCustomGrandTotal('');
@@ -210,8 +247,8 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
           <span className="material-symbols-outlined text-[16px]">add_circle</span>
           <span>Sales Operations</span>
         </div>
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">New Order Entry</h1>
-        <p className="text-slate-500 text-sm mt-1">Fill in the details below to log a new customer order manually.</p>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Tạo đơn hàng mới</h1>
+        <p className="text-slate-500 text-sm mt-1">Nhập tên, số điện thoại, món khách đặt và upload ảnh bill nếu có.</p>
       </div>
 
       <form onSubmit={handleSaveOrder} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -264,11 +301,46 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
             </div>
           </div>
 
+          {/* Customer information */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+            <h2 className="text-lg font-black text-slate-800 mb-5 flex items-center gap-2">
+              <UserRound className="text-[#9d4300]" size={20} />
+              Thông tin khách hàng
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Tên khách hàng *</label>
+                <input
+                  type="text"
+                  required
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="ví dụ: Nguyễn Văn A"
+                  className="w-full h-12 px-4 rounded-lg border-2 border-slate-200 focus:border-[#f97316] focus:outline-none font-bold text-sm text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                  <Phone size={13} />
+                  Số điện thoại *
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  placeholder="ví dụ: 0901234567"
+                  className="w-full h-12 px-4 rounded-lg border-2 border-slate-200 focus:border-[#f97316] focus:outline-none font-bold text-sm text-slate-800"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Product selection card */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
             <h2 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
               <ShoppingBasket className="text-[#9d4300]" size={20} />
-              Product Selection
+              Món khách order
             </h2>
             <div className="space-y-4">
               {/* Search typing suggestions bar */}
@@ -282,7 +354,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
                     setShowSearchResults(true);
                   }}
                   onFocus={() => setShowSearchResults(true)}
-                  placeholder="Gõ tên món ăn hoặc mã vạch SKU để thêm... (ví dụ: Matcha, Cà phê)"
+                  placeholder="Gõ tên món ăn hoặc mã món để thêm... (ví dụ: CTTT, Dâu tây)"
                   className="w-full h-12 pl-12 pr-4 rounded-xl border-2 border-slate-200 focus:border-[#f97316] focus:outline-none text-sm text-slate-800"
                 />
 
@@ -297,7 +369,13 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
                           className="flex items-center justify-between p-3.5 hover:bg-slate-50 cursor-pointer transition-colors"
                         >
                           <div className="flex items-center gap-3">
-                            <img className="w-8 h-8 rounded-lg object-cover" src={product.image} alt={product.name} />
+                            {product.image ? (
+                              <img className="w-8 h-8 rounded-lg object-cover" src={product.image} alt={product.name} />
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center text-[#9d4300]">
+                                <span className="material-symbols-outlined text-[16px]">restaurant_menu</span>
+                              </div>
+                            )}
                             <div>
                               <div className="text-xs font-bold text-slate-800">{product.name}</div>
                               <div className="text-[10px] text-slate-400 font-mono mt-0.5">{product.sku}</div>
@@ -318,9 +396,9 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
                 <table className="w-full text-left">
                   <thead className="bg-[#fffcfb] text-[10px] uppercase font-bold text-slate-400">
                     <tr>
-                      <th className="px-4 py-3">Product Item</th>
-                      <th className="px-4 py-3 text-center">Quantity</th>
-                      <th className="px-4 py-3 text-right">Unit Price</th>
+                      <th className="px-4 py-3">Món</th>
+                      <th className="px-4 py-3 text-center">Số lượng</th>
+                      <th className="px-4 py-3 text-right">Đơn giá</th>
                       <th className="px-4 py-3 text-right">Subtotal</th>
                       <th className="px-4 py-3"></th>
                     </tr>
@@ -331,7 +409,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
                         <tr key={item.id} className="hover:bg-slate-50/20">
                           <td className="px-4 py-4">
                             <div className="font-bold text-slate-800">{item.name}</div>
-                            <div className="text-[9px] text-slate-400 font-mono mt-0.5">SKU: {item.sku}</div>
+                            <div className="text-[9px] text-slate-400 font-mono mt-0.5">Mã món: {item.sku}</div>
                           </td>
                           <td className="px-4 py-4">
                             <div className="flex items-center justify-center gap-1">
@@ -382,7 +460,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
               <span className="material-symbols-outlined text-[18px]">sticky_note_2</span>
-              <span>Order Notes</span>
+              <span>Ghi chú đơn hàng</span>
             </label>
             <textarea
               value={orderNotes}
@@ -399,16 +477,16 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
           <div className="bg-[#f97316] text-white rounded-2xl p-6 shadow-lg shadow-orange-100 space-y-6">
             <div className="space-y-3 text-xs font-medium">
               <div className="flex justify-between items-center opacity-90">
-                <span>Subtotal</span>
+                <span>Tạm tính</span>
                 <span className="font-bold">{formatMoney(computedSubtotal)}</span>
               </div>
               <div className="flex justify-between items-center opacity-90">
-                <span>Shipping Fee</span>
+                <span>Phí giao hàng</span>
                 <span className="font-bold">{formatMoney(computedSubtotal > 0 ? shippingFee : 0)}</span>
               </div>
               <div className="pt-4 border-t border-white/20">
                 <label className="block text-[9px] uppercase font-black tracking-widest mb-1 opacity-80">
-                  Total Amount (Custom Editable)
+                  Tổng tiền (có thể nhập tay)
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -428,33 +506,35 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
             <div className="space-y-3 pt-4 border-t border-white/10">
               <button
                 type="submit"
-                disabled={isSavingOrder}
+                disabled={isSavingOrder || isReadingBillImage}
                 className="w-full bg-white text-[#9d4300] font-black pointer-events-auto cursor-pointer hover:bg-orange-50 py-3.5 rounded-xl shadow-md transition-all active:scale-97 text-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Save size={16} />
-                {isSavingOrder ? 'Saving to Supabase...' : 'Save Order'}
+                {isSavingOrder ? 'Đang lưu Supabase...' : 'Lưu đơn hàng'}
               </button>
               <button
                 type="button"
                 onClick={handleDiscard}
-                disabled={isSavingOrder}
+                disabled={isSavingOrder || isReadingBillImage}
                 className="w-full bg-orange-600/30 text-white font-bold py-3 rounded-xl border border-white/10 hover:bg-orange-600/50 transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Cancel & Discard
+                Hủy và xóa nội dung
               </button>
-            </div>
-
-            <div className="flex items-center justify-between pt-4 border-t border-white/20 text-[10px]">
-              <span className="uppercase font-black tracking-widest opacity-85">Order Status</span>
-              <span className="px-3 py-1 bg-white/20 rounded-full font-black text-xs">NEW</span>
             </div>
           </div>
 
-          {/* Screenshot simulated upload section */}
+          {/* Bill upload section */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-4">
-              Screenshot Upload
+              Upload ảnh bill
             </label>
+            <input
+              ref={billFileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleBillInputChange}
+            />
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -469,7 +549,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
                   <div className="relative aspect-[4/3] rounded-lg overflow-hidden border border-slate-100 shadow-sm mx-auto w-32">
                     <img className="w-full h-full object-cover" src={attachedImage} alt="Attachment Check" />
                   </div>
-                  <p className="text-xs font-bold text-green-600">✓ Screenshot uploaded successfully</p>
+                  <p className="text-xs font-bold text-green-600">✓ Đã upload ảnh bill</p>
                   <button 
                     type="button" 
                     onClick={(e) => {
@@ -478,14 +558,16 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
                     }}
                     className="text-[10px] text-red-500 font-bold underline hover:text-red-700"
                   >
-                    Remove attachment
+                    Xóa ảnh bill
                   </button>
                 </div>
               ) : (
                 <>
-                  <span className="material-symbols-outlined text-[40px] text-slate-300 group-hover:text-[#9d4300] transition-colors mb-2">cloud_upload</span>
-                  <p className="text-xs font-bold text-slate-600">Click to upload or drag JPG/PNG</p>
-                  <p className="text-[9px] text-slate-400 mt-1 uppercase tracking-wider">Max file size: 5MB</p>
+                  <UploadCloud className="mx-auto text-slate-300 group-hover:text-[#9d4300] transition-colors mb-2" size={40} />
+                  <p className="text-xs font-bold text-slate-600">
+                    {isReadingBillImage ? 'Đang đọc ảnh bill...' : 'Bấm để upload hoặc kéo thả JPG/PNG'}
+                  </p>
+                  <p className="text-[9px] text-slate-400 mt-1 uppercase tracking-wider">Tối đa 5MB</p>
                 </>
               )}
             </div>
@@ -507,7 +589,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
             </div>
             <div>
               <span className="block text-[9px] text-slate-400 uppercase tracking-wider font-bold mb-1">Local Time</span>
-              <span className="font-bold text-slate-700">24 Oct 2023 • 14:45</span>
+              <span className="font-bold text-slate-700">{new Date().toLocaleString('vi-VN')}</span>
             </div>
           </div>
         </div>
