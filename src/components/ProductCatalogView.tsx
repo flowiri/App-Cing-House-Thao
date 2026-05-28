@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Product } from '../types';
 import { imageFileToDataUrl } from '../utils/images';
 import { Search, Plus, Edit3, Trash2, X, CheckCircle2, UploadCloud, Image as ImageIcon } from 'lucide-react';
@@ -20,6 +21,8 @@ export default function ProductCatalogView({
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -73,6 +76,19 @@ export default function ProductCatalogView({
 
     return matchesQuery && matchesCategory && matchesStatus;
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, categoryFilter, statusFilter, pageSize, products.length]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const firstItemIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedProducts = filteredProducts.slice(firstItemIndex, firstItemIndex + pageSize);
+  const displayStart = filteredProducts.length === 0 ? 0 : firstItemIndex + 1;
+  const displayEnd = Math.min(firstItemIndex + pageSize, filteredProducts.length);
+  const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1)
+    .filter(page => totalPages <= 7 || page === 1 || page === totalPages || Math.abs(page - safeCurrentPage) <= 1);
 
   // Actions trigger: Create Add product
   const handleOpenAdd = () => {
@@ -249,6 +265,8 @@ export default function ProductCatalogView({
     </div>
   );
 
+  const modalRoot = typeof document !== 'undefined' ? document.body : null;
+
   return (
     <div className="space-y-6 font-sans select-none animate-fade-in pb-16">
       {/* Header section matches mockup */}
@@ -388,7 +406,7 @@ export default function ProductCatalogView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm font-sans font-medium">
-                {filteredProducts.map((product) => (
+                {paginatedProducts.map((product) => (
                   <tr key={product.id} className="hover:bg-slate-50/50 transition-colors group">
                     {/* SKU label code */}
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -479,14 +497,58 @@ export default function ProductCatalogView({
         </div>
 
         {/* Pagination summary info block */}
-        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-[#fffcfb] text-xs font-bold text-slate-400">
-          <span>Hiển thị 1-{filteredProducts.length} trong {filteredProducts.length} sản phẩm</span>
+        <div className="px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#fffcfb] text-xs font-bold text-slate-400">
+          <div className="flex flex-wrap items-center gap-3">
+            <span>Hiển thị {displayStart}-{displayEnd} trong {filteredProducts.length} sản phẩm</span>
+            <label className="flex items-center gap-2">
+              <span>Mỗi trang</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-600 focus:outline-none focus:border-[#f97316]"
+              >
+                {[10, 20, 50].map(size => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="flex items-center gap-1.5">
-            <button disabled className="p-2 bg-white text-slate-300 border border-slate-100 rounded-lg cursor-not-allowed">
+            <button
+              type="button"
+              disabled={safeCurrentPage === 1}
+              onClick={() => setCurrentPage(page => Math.max(1, page - 1))}
+              className="p-2 bg-white text-slate-500 border border-slate-100 rounded-lg hover:border-[#f97316] hover:text-[#9d4300] disabled:text-slate-300 disabled:cursor-not-allowed disabled:hover:border-slate-100"
+            >
               ‹
             </button>
-            <button className="w-8 h-8 rounded-lg bg-[#f97316] text-white flex items-center justify-center font-black">1</button>
-            <button disabled className="p-2 bg-white text-slate-300 border border-slate-100 rounded-lg cursor-not-allowed">
+            {pageNumbers.map((page, index) => {
+              const previousPage = pageNumbers[index - 1];
+              const showEllipsis = previousPage && page - previousPage > 1;
+
+              return (
+                <React.Fragment key={page}>
+                  {showEllipsis && <span className="px-1 text-slate-300">…</span>}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center font-black transition-colors ${
+                      safeCurrentPage === page
+                        ? 'bg-[#f97316] text-white'
+                        : 'bg-white text-slate-500 border border-slate-100 hover:border-[#f97316] hover:text-[#9d4300]'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+            <button
+              type="button"
+              disabled={safeCurrentPage === totalPages}
+              onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}
+              className="p-2 bg-white text-slate-500 border border-slate-100 rounded-lg hover:border-[#f97316] hover:text-[#9d4300] disabled:text-slate-300 disabled:cursor-not-allowed disabled:hover:border-slate-100"
+            >
               ›
             </button>
           </div>
@@ -494,9 +556,9 @@ export default function ProductCatalogView({
       </div>
 
       {/* --- CRUD Modal: ADD --- */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto animate-fade-in select-none">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-6 relative border border-slate-100 shadow-2xl">
+      {showAddModal && modalRoot && createPortal(
+        <div className="fixed inset-x-0 top-16 bottom-0 bg-slate-900/50 backdrop-blur-xs z-[100] flex items-start justify-center p-4 overflow-y-auto animate-fade-in select-none">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[calc(100vh-5.5rem)] overflow-y-auto p-6 space-y-6 relative border border-slate-100 shadow-2xl">
             <button 
               onClick={() => setShowAddModal(false)}
               disabled={isSavingProduct}
@@ -605,13 +667,14 @@ export default function ProductCatalogView({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        modalRoot
       )}
 
       {/* --- CRUD Modal: EDIT --- */}
-      {showEditModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto animate-fade-in select-none">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-6 relative border border-slate-100 shadow-2xl">
+      {showEditModal && modalRoot && createPortal(
+        <div className="fixed inset-x-0 top-16 bottom-0 bg-slate-900/50 backdrop-blur-xs z-[100] flex items-start justify-center p-4 overflow-y-auto animate-fade-in select-none">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[calc(100vh-5.5rem)] overflow-y-auto p-6 space-y-6 relative border border-slate-100 shadow-2xl">
             <button 
               onClick={() => setShowEditModal(false)}
               disabled={isSavingProduct}
@@ -716,7 +779,8 @@ export default function ProductCatalogView({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        modalRoot
       )}
     </div>
   );

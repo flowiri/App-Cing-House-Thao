@@ -129,12 +129,6 @@ export default function OrderDetailView({ order, onBack, onDeleteOrder }: OrderD
                     <td className="px-6 py-3 text-right font-bold text-slate-500" colSpan={3}>Tạm tính</td>
                     <td className="px-6 py-3 text-right font-black text-slate-800">{formatMoney(order.subtotal)}</td>
                   </tr>
-                  {order.shippingFee > 0 && (
-                    <tr>
-                      <td className="px-6 py-3 text-right font-bold text-slate-500" colSpan={3}>Phí giao hàng</td>
-                      <td className="px-6 py-3 text-right font-black text-slate-800">{formatMoney(order.shippingFee)}</td>
-                    </tr>
-                  )}
                   {order.serviceFee && order.serviceFee > 0 ? (
                     <tr>
                       <td className="px-6 py-3 text-right font-bold text-slate-500" colSpan={3}>Phí dịch vụ</td>

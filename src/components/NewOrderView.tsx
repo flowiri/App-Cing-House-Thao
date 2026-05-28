@@ -25,8 +25,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
   const [showSearchResults, setShowSearchResults] = useState(false);
 
   // Totals
-  const [shippingFee, setShippingFee] = useState(15000);
-  const [customGrandTotal, setCustomGrandTotal] = useState<string>(''); // if empty, compute standard subtotal + ship fee
+  const [customGrandTotal, setCustomGrandTotal] = useState<string>(''); // if empty, use product subtotal
   
   // Bill image upload state
   const billFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -36,7 +35,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
 
   // Computed subtotal
   const computedSubtotal = lineItems.reduce((sum, item) => sum + item.subtotal, 0);
-  const computedGrandTotal = computedSubtotal + (computedSubtotal > 0 ? shippingFee : 0);
+  const computedGrandTotal = computedSubtotal;
 
   useEffect(() => {
     if (branches.length === 0) {
@@ -195,7 +194,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
       channel: selectedChannel,
       items: lineItems,
       subtotal: computedSubtotal,
-      shippingFee: computedSubtotal > 0 ? shippingFee : 0,
+      shippingFee: 0,
       total: finalTotal,
       // Giá trị mặc định để tương thích schema Supabase; giao diện order không dùng trạng thái.
       status: 'COMPLETED',
@@ -480,10 +479,6 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
                 <span>Tạm tính</span>
                 <span className="font-bold">{formatMoney(computedSubtotal)}</span>
               </div>
-              <div className="flex justify-between items-center opacity-90">
-                <span>Phí giao hàng</span>
-                <span className="font-bold">{formatMoney(computedSubtotal > 0 ? shippingFee : 0)}</span>
-              </div>
               <div className="pt-4 border-t border-white/20">
                 <label className="block text-[9px] uppercase font-black tracking-widest mb-1 opacity-80">
                   Tổng tiền (có thể nhập tay)
@@ -498,7 +493,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
                   />
                 </div>
                 <p className="text-[10px] text-white/75 mt-1 font-medium italic">
-                  * Trực quan hóa giá trị nhập tay hoặc để trống hệ thống tự tính
+                  * Để trống để hệ thống tự tính theo tổng món, không cộng phí ship
                 </p>
               </div>
             </div>
