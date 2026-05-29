@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { Branch, Product, Order } from './types';
 import DashboardView from './components/DashboardView';
 import OrdersView from './components/OrdersView';
 import NewOrderView from './components/NewOrderView';
 import ProductCatalogView from './components/ProductCatalogView';
 import CustomerDataView from './components/CustomerDataView';
+import LoginView from './components/LoginView';
+import { supabase } from './lib/supabase';
 import { loadBranches } from './services/branches';
 import {
   createOrder,
@@ -17,13 +20,16 @@ import {
   loadProducts,
   updateProduct
 } from './services/products';
-import { LayoutDashboard, Receipt, PlusCircle, Settings, Store, Bell, HelpCircle, LogOut, Menu, X, UsersRound } from 'lucide-react';
+import { LayoutDashboard, Receipt, PlusCircle, Settings, Store, Bell, HelpCircle, LogOut, Menu, X, UsersRound, LoaderCircle } from 'lucide-react';
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
 export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<string>('Dashboard');
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -36,9 +42,61 @@ export default function App() {
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSession = async () => {
+      try {
+        setAuthLoading(true);
+        setAuthError(null);
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (isMounted) setSession(data.session);
+      } catch (error) {
+        console.error('Failed to load Supabase auth session:', error);
+        if (isMounted) {
+          setSession(null);
+          setAuthError(getErrorMessage(error));
+        }
+      } finally {
+        if (isMounted) setAuthLoading(false);
+      }
+    };
+
+    loadSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!isMounted) return;
+      setSession(nextSession);
+      setAuthLoading(false);
+
+      if (!nextSession) {
+        setActiveView('Dashboard');
+        setMobileSidebarExpanded(false);
+        setBranches([]);
+        setProducts([]);
+        setOrders([]);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
   // Branches come only from Supabase.
   useEffect(() => {
     let isMounted = true;
+
+    if (!session) {
+      setBranches([]);
+      setBranchesLoading(false);
+      setBranchesError(null);
+      return () => {
+        isMounted = false;
+      };
+    }
 
     const loadSupabaseBranches = async () => {
       try {
@@ -62,11 +120,20 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user.id]);
 
   // Product catalog comes only from Supabase.
   useEffect(() => {
     let isMounted = true;
+
+    if (!session) {
+      setProducts([]);
+      setProductsLoading(false);
+      setProductsError(null);
+      return () => {
+        isMounted = false;
+      };
+    }
 
     const loadSupabaseProducts = async () => {
       try {
@@ -90,11 +157,20 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user.id]);
 
   // Orders also come only from Supabase.
   useEffect(() => {
     let isMounted = true;
+
+    if (!session) {
+      setOrders([]);
+      setOrdersLoading(false);
+      setOrdersError(null);
+      return () => {
+        isMounted = false;
+      };
+    }
 
     const loadSupabaseOrders = async () => {
       try {
@@ -118,7 +194,36 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [session?.user.id]);
+
+  const handleLogin = async (email: string, password: string) => {
+    setAuthError(null);
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
+
+    if (error) throw error;
+
+    setSession(data.session);
+    setActiveView('Dashboard');
+  };
+
+  const handleSignOut = async () => {
+    if (!confirm('Bạn muốn đăng xuất khỏi OrderHub F&B?')) return;
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setSession(null);
+      setActiveView('Dashboard');
+      setMobileSidebarExpanded(false);
+    } catch (error) {
+      console.error('Failed to sign out from Supabase:', error);
+      alert(`Không thể đăng xuất: ${getErrorMessage(error)}`);
+    }
+  };
 
   // --- CRUD Order Actions handlers ---
   const handleAddOrder = async (newOrder: Order): Promise<boolean> => {
@@ -184,6 +289,33 @@ export default function App() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <main className="min-h-screen bg-[#F8FAFC] text-slate-700 font-sans antialiased flex items-center justify-center">
+        <div className="flex items-center gap-3 rounded-2xl bg-white border border-slate-200 px-5 py-4 shadow-sm">
+          <LoaderCircle size={20} className="animate-spin text-[#f97316]" />
+          <span className="text-sm font-black">Đang kiểm tra phiên đăng nhập...</span>
+        </div>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return <LoginView authError={authError} onLogin={handleLogin} />;
+  }
+
+  const userMetadata = session.user.user_metadata;
+  const displayName = typeof userMetadata?.full_name === 'string' && userMetadata.full_name.trim()
+    ? userMetadata.full_name.trim()
+    : session.user.email ?? 'Admin user';
+  const userInitials = displayName
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'AD';
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-sans antialiased flex flex-col select-none">
       
@@ -226,16 +358,14 @@ export default function App() {
               <Settings size={18} />
             </button>
             
-            {/* Young Female restaurant operations manager screenshot avatar */}
             <div className="flex items-center gap-2 ml-2 border-l border-slate-200 pl-3">
-              <img 
-                className="w-8 h-8 rounded-full border border-slate-200 object-cover shadow-sm cursor-help" 
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuDm7mqEKEqO2nmNyTYlT2z3vN6iSJoHFinq_jMBGjnTXdwwMajL4pcwt03Fpw72vRxfpf2JSCYGuBxVhEdvL6TAyJeQIDSO-2eT9WyZInM7fmfhY0Me8anc9altqYlzwgWfKaLo0Ac582qzeqRWH-aQffPUTbJdQX9HRygffF-PgmCRLWWlNaHFXfXBdA9Ell2asaAGw7LE3E9DiLOCbMXPH7dt4iGqdgI5xNen85UssLCn1uWCY4aA8Gw8eEhcVqxINjnyIHcUaik" 
-                alt="Ops Manager Headshot" 
-                referrerPolicy="no-referrer"
-                title="Restaurant Operations Manager"
-              />
-              <span className="hidden md:inline text-xs font-bold text-slate-700">Admin_Manager_01</span>
+              <div
+                className="w-8 h-8 rounded-full border border-orange-100 bg-orange-100 text-[#9d4300] flex items-center justify-center shadow-sm text-[11px] font-black"
+                title={displayName}
+              >
+                {userInitials}
+              </div>
+              <span className="hidden md:inline max-w-[180px] truncate text-xs font-bold text-slate-700">{displayName}</span>
             </div>
           </div>
         </div>
@@ -296,11 +426,7 @@ export default function App() {
               <span>Help Center / Support</span>
             </button>
             <button 
-              onClick={() => {
-                if (confirm('Bạn muốn đăng xuất khỏi Terminal #04?')) {
-                  alert('Đăng xuất thành công.');
-                }
-              }}
+              onClick={handleSignOut}
               className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-slate-500 hover:bg-slate-50 text-xs font-bold hover:text-red-600 transition-colors"
             >
               <LogOut size={16} />
@@ -377,11 +503,7 @@ export default function App() {
                   <span>Call Support</span>
                 </button>
                 <button 
-                  onClick={() => {
-                    if (confirm('Đăng xuất terminal?')) {
-                      setMobileSidebarExpanded(false);
-                    }
-                  }}
+                  onClick={handleSignOut}
                   className="flex items-center gap-3 px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg hover:text-red-500"
                 >
                   <LogOut size={14} />
