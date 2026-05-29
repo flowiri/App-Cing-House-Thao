@@ -1,11 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Branch, Order, Product } from '../types';
-import { CalendarDays, CheckCircle, ReceiptText, ShoppingBag, Star, TrendingUp, UsersRound } from 'lucide-react';
+import { Branch, Order } from '../types';
+import { CalendarDays, ReceiptText, ShoppingBag, Star, TrendingUp, UsersRound } from 'lucide-react';
 
 interface DashboardViewProps {
   branches: Branch[];
   orders: Order[];
-  products: Product[];
   onNavigate: (view: string) => void;
 }
 
@@ -107,7 +106,7 @@ function getCustomerKey(order: Order) {
   return `name:${order.customerName.trim().toLowerCase() || 'unknown'}`;
 }
 
-export default function DashboardView({ branches, orders, products, onNavigate }: DashboardViewProps) {
+export default function DashboardView({ branches, orders, onNavigate }: DashboardViewProps) {
   const [selectedRange, setSelectedRange] = useState<RangeKey>('week');
   const [customStartDate, setCustomStartDate] = useState(() => formatDateInput(addDays(startOfDay(new Date()), -6)));
   const [customEndDate, setCustomEndDate] = useState(() => formatDateInput(startOfDay(new Date())));
@@ -156,9 +155,6 @@ export default function DashboardView({ branches, orders, products, onNavigate }
 
     const totalRevenue = revenueOrders.reduce((sum, order) => sum + order.total, 0);
     const previousRevenue = previousRevenueOrders.reduce((sum, order) => sum + order.total, 0);
-    const billCaptureRate = currentOrders.length > 0
-      ? (currentOrders.filter(order => Boolean(order.screenshot)).length / currentOrders.length) * 100
-      : 0;
     const growthPct = previousRevenue === 0
       ? (totalRevenue > 0 ? 100 : 0)
       : ((totalRevenue - previousRevenue) / previousRevenue) * 100;
@@ -170,7 +166,6 @@ export default function DashboardView({ branches, orders, products, onNavigate }
       revenueOrders,
       totalRevenue,
       averageOrderValue,
-      billCaptureRate,
       growthPct
     };
   }, [orders, selectedRange, customStartDate, customEndDate]);
@@ -381,7 +376,7 @@ export default function DashboardView({ branches, orders, products, onNavigate }
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <div id="stat-revenue" className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between relative overflow-hidden h-36">
           <div className="absolute top-0 left-0 h-full w-1.5 bg-[#f97316]"></div>
           <div className="flex justify-between items-start">
@@ -425,31 +420,6 @@ export default function DashboardView({ branches, orders, products, onNavigate }
           </div>
         </div>
 
-        <div id="stat-completion" className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between h-36">
-          <div className="flex justify-between items-start">
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Bill Capture Rate (%)</span>
-            <span className="bg-purple-50 text-purple-500 p-2 rounded-lg">
-              <CheckCircle size={20} />
-            </span>
-          </div>
-          <div className="mt-2">
-            <h3 className="text-2xl font-black text-slate-800">{rangeData.billCaptureRate.toFixed(1)}%</h3>
-            <p className="text-[11px] text-slate-400 font-bold mt-1">Đơn có ảnh bill / tổng đơn</p>
-          </div>
-        </div>
-
-        <div id="stat-products" className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between h-36">
-          <div className="flex justify-between items-start">
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Products in Catalog</span>
-            <span className="bg-green-50 text-green-500 p-2 rounded-lg">
-              <span className="material-symbols-outlined">restaurant_menu</span>
-            </span>
-          </div>
-          <div className="mt-2">
-            <h3 className="text-2xl font-black text-slate-800">{products.length}</h3>
-            <p className="text-[11px] text-slate-400 font-bold mt-1">From Supabase products</p>
-          </div>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">

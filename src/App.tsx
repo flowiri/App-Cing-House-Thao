@@ -562,7 +562,6 @@ export default function App() {
               <DashboardView 
                 branches={branches}
                 orders={orders} 
-                products={products}
                 onNavigate={(v) => setActiveView(v)}
               />
             )}
