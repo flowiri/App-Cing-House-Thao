@@ -4,6 +4,7 @@ import DashboardView from './components/DashboardView';
 import OrdersView from './components/OrdersView';
 import NewOrderView from './components/NewOrderView';
 import ProductCatalogView from './components/ProductCatalogView';
+import CustomerDataView from './components/CustomerDataView';
 import { loadBranches } from './services/branches';
 import {
   createOrder,
@@ -16,7 +17,7 @@ import {
   loadProducts,
   updateProduct
 } from './services/products';
-import { LayoutDashboard, Receipt, PlusCircle, Settings, Store, Bell, HelpCircle, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Receipt, PlusCircle, Settings, Store, Bell, HelpCircle, LogOut, Menu, X, UsersRound } from 'lucide-react';
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -261,6 +262,7 @@ export default function App() {
                 { name: 'Dashboard', icon: <LayoutDashboard size={18} /> },
                 { name: 'Orders', icon: <Receipt size={18} /> },
                 { name: 'New Order', icon: <PlusCircle size={18} /> },
+                { name: 'Customers', icon: <UsersRound size={18} /> },
                 { name: 'Product Catalog', icon: <Settings size={18} /> }
               ].map(item => {
                 const isActive = activeView === item.name || (item.name === 'Orders' && activeView.includes('Order'));
@@ -278,7 +280,7 @@ export default function App() {
                     }`}
                   >
                     <span>{item.icon}</span>
-                    <span>{item.name === 'Product Catalog' ? 'Product Catalog' : item.name}</span>
+                    <span>{item.name === 'Customers' ? 'Khách hàng' : item.name === 'Product Catalog' ? 'Product Catalog' : item.name}</span>
                   </button>
                 );
               })}
@@ -338,6 +340,7 @@ export default function App() {
                     { name: 'Dashboard', icon: <LayoutDashboard size={18} /> },
                     { name: 'Orders', icon: <Receipt size={18} /> },
                     { name: 'New Order', icon: <PlusCircle size={18} /> },
+                    { name: 'Customers', icon: <UsersRound size={18} /> },
                     { name: 'Product Catalog', icon: <Settings size={18} /> }
                   ].map(item => {
                     const isActive = activeView === item.name;
@@ -355,7 +358,7 @@ export default function App() {
                         }`}
                       >
                         <span>{item.icon}</span>
-                        <span>{item.name === 'Product Catalog' ? 'Product Catalog' : item.name}</span>
+                        <span>{item.name === 'Customers' ? 'Khách hàng' : item.name === 'Product Catalog' ? 'Product Catalog' : item.name}</span>
                       </button>
                     );
                   })}
@@ -460,6 +463,10 @@ export default function App() {
               />
             )}
 
+            {activeView === 'Customers' && (
+              <CustomerDataView orders={orders} />
+            )}
+
             {activeView === 'Product Catalog' && (
               <ProductCatalogView 
                 products={products}
@@ -479,6 +486,7 @@ export default function App() {
           { id: 'Dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
           { id: 'Orders', label: 'Orders', icon: <Receipt size={18} /> },
           { id: 'New Order', label: 'Entry', icon: <PlusCircle size={18} /> },
+          { id: 'Customers', label: 'Khách', icon: <UsersRound size={18} /> },
           { id: 'Product Catalog', label: 'Products', icon: <Settings size={18} /> }
         ].map(tab => {
           const isActive = activeView === tab.id || (tab.id === 'Orders' && activeView.includes('Order'));
