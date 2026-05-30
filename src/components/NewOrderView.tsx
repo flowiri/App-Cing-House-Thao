@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Branch, Product, Order, OrderItem } from '../types';
 import { imageFileToDataUrl } from '../utils/images';
-import { ShoppingBasket, Trash2, Save, UserRound, Phone, UploadCloud } from 'lucide-react';
+import { parseOrderImage, ParsedOrderImage, ParsedOrderImageItem } from '../services/orderImageParser';
+import { LoaderCircle, Phone, Save, ShoppingBasket, Sparkles, Trash2, UploadCloud, UserRound } from 'lucide-react';
 
 interface NewOrderViewProps {
   branches: Branch[];
@@ -32,6 +33,9 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isReadingBillImage, setIsReadingBillImage] = useState(false);
+  const autoImportFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isParsingOrderImage, setIsParsingOrderImage] = useState(false);
+  const [autoImportSummary, setAutoImportSummary] = useState<string | null>(null);
 
   // Computed subtotal
   const computedSubtotal = lineItems.reduce((sum, item) => sum + item.subtotal, 0);
@@ -99,6 +103,161 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
 
   const handleDeleteItem = (itemId: string) => {
     setLineItems(lineItems.filter(it => it.id !== itemId));
+  };
+
+  const normalizeText = (value: string) => {
+    return value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const findBestProductMatch = (rawName: string) => {
+    const normalizedRaw = normalizeText(rawName);
+    if (!normalizedRaw) return null;
+
+    let bestProduct: Product | null = null;
+    let bestScore = 0;
+    const rawTokens = new Set(normalizedRaw.split(' ').filter(token => token.length > 1));
+
+    products.forEach((product) => {
+      const normalizedName = normalizeText(product.name);
+      const normalizedSku = normalizeText(product.sku);
+      let score = 0;
+
+      if (normalizedRaw === normalizedName || normalizedRaw === normalizedSku) score = 1;
+      else if (normalizedName.includes(normalizedRaw) || normalizedRaw.includes(normalizedName)) score = 0.88;
+      else {
+        const productTokens = normalizedName.split(' ').filter(token => token.length > 1);
+        const overlap = productTokens.filter(token => rawTokens.has(token)).length;
+        score = productTokens.length > 0 ? overlap / Math.max(productTokens.length, rawTokens.size) : 0;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestProduct = product;
+      }
+    });
+
+    return bestScore >= 0.45 ? bestProduct : null;
+  };
+
+  const toLineItem = (parsedItem: ParsedOrderImageItem, index: number): OrderItem => {
+    const matchedProduct = findBestProductMatch(parsedItem.name);
+    const quantity = Math.max(1, Math.round(Number(parsedItem.quantity) || 1));
+
+    if (matchedProduct) {
+      return {
+        id: matchedProduct.id,
+        sku: matchedProduct.sku,
+        name: matchedProduct.name,
+        quantity,
+        price: matchedProduct.price,
+        subtotal: matchedProduct.price * quantity
+      };
+    }
+
+    const fallbackName = parsedItem.size ? `${parsedItem.name} (${parsedItem.size})` : parsedItem.name;
+    return {
+      id: `ai-custom-${index}-${normalizeText(parsedItem.name).replace(/\s/g, '-') || Date.now()}`,
+      sku: 'AI-CUSTOM',
+      name: fallbackName,
+      quantity,
+      price: 0,
+      subtotal: 0
+    };
+  };
+
+  const mergeLineItems = (items: OrderItem[]) => {
+    const itemMap = new Map<string, OrderItem>();
+
+    items.forEach((item) => {
+      const key = item.id.startsWith('ai-custom') ? normalizeText(item.name) : item.id;
+      const existing = itemMap.get(key);
+      if (!existing) {
+        itemMap.set(key, item);
+        return;
+      }
+
+      const quantity = existing.quantity + item.quantity;
+      itemMap.set(key, {
+        ...existing,
+        quantity,
+        subtotal: quantity * existing.price
+      });
+    });
+
+    return Array.from(itemMap.values());
+  };
+
+  const applyParsedOrder = (parsedOrder: ParsedOrderImage) => {
+    if (lineItems.length > 0 && !confirm('Form đang có món. Bạn muốn thay bằng dữ liệu đọc từ ảnh?')) {
+      return;
+    }
+
+    if (parsedOrder.customerName) setCustomerName(parsedOrder.customerName);
+    if (parsedOrder.customerPhone) setCustomerPhone(parsedOrder.customerPhone);
+
+    const parsedChannel = normalizeText(parsedOrder.channel || '');
+    if (parsedChannel.includes('zalo')) setSelectedChannel('Zalo');
+    else if (parsedChannel.includes('instagram')) setSelectedChannel('Instagram');
+    else if (parsedChannel.includes('facebook')) setSelectedChannel('Facebook');
+
+    const importedItems = mergeLineItems(parsedOrder.items.map(toLineItem));
+    if (importedItems.length > 0) setLineItems(importedItems);
+
+    const unmatchedItems = importedItems.filter(item => item.price === 0);
+    const itemNotes = parsedOrder.items
+      .filter(item => item.size || item.note)
+      .map(item => `- ${item.name}${item.size ? ` size ${item.size}` : ''}${item.note ? `: ${item.note}` : ''}`);
+    const importedNotes = [
+      'Tự nhập từ ảnh screenshot.',
+      parsedOrder.deliveryAddress ? `Địa chỉ giao hàng: ${parsedOrder.deliveryAddress}` : '',
+      parsedOrder.requestedTime ? `Thời gian giao/nhận: ${parsedOrder.requestedTime}` : '',
+      parsedOrder.notes ? `Ghi chú từ ảnh: ${parsedOrder.notes}` : '',
+      itemNotes.length > 0 ? `Chi tiết món:\n${itemNotes.join('\n')}` : '',
+      unmatchedItems.length > 0 ? `Cần kiểm tra giá/catalog cho: ${unmatchedItems.map(item => item.name).join(', ')}` : ''
+    ].filter(Boolean).join('\n');
+
+    setOrderNotes(current => [importedNotes, current].filter(Boolean).join('\n\n'));
+    setCustomGrandTotal('');
+    setAutoImportSummary(`Đã đọc ${importedItems.length} món${unmatchedItems.length > 0 ? `, ${unmatchedItems.length} món chưa khớp catalog` : ''}. Vui lòng kiểm tra lại trước khi lưu.`);
+  };
+
+  const handleAutoImportFile = async (file: File) => {
+    setIsParsingOrderImage(true);
+    setAutoImportSummary(null);
+
+    try {
+      const dataUrl = await imageFileToDataUrl(file, {
+        maxInputBytes: 8 * 1024 * 1024,
+        maxWidth: 1800,
+        maxHeight: 1800,
+        quality: 0.88
+      });
+      setAttachedImage(dataUrl);
+      const parsedOrder = await parseOrderImage(dataUrl, products);
+      applyParsedOrder(parsedOrder);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsParsingOrderImage(false);
+    }
+  };
+
+  const handleAutoImportInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (file) await handleAutoImportFile(file);
+    input.value = '';
+  };
+
+  const handleTriggerAutoImport = () => {
+    autoImportFileInputRef.current?.click();
   };
 
   // Drag-and-drop handles
@@ -226,6 +385,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
       setOrderNotes('');
       setCustomGrandTotal('');
       setAttachedImage(null);
+      setAutoImportSummary(null);
     }
   };
 
@@ -248,6 +408,41 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
         </div>
         <h1 className="text-3xl font-black text-slate-900 tracking-tight">Tạo đơn hàng mới</h1>
         <p className="text-slate-500 text-sm mt-1">Nhập tên, số điện thoại, món khách đặt và upload ảnh bill nếu có.</p>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-orange-100 p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-11 h-11 rounded-xl bg-[#ffeae0] text-[#9d4300] flex items-center justify-center shrink-0">
+            <Sparkles size={22} />
+          </div>
+          <div>
+            <h2 className="text-base font-black text-slate-900">Tự nhập đơn từ ảnh screenshot</h2>
+            <p className="text-xs font-bold text-slate-400 mt-1 leading-relaxed">
+              Upload ảnh chat Zalo/Facebook/Instagram hoặc ảnh bảng món, hệ thống sẽ tự điền khách hàng, SĐT, món và ghi chú.
+            </p>
+            {autoImportSummary && (
+              <p className="text-xs font-black text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2 mt-3">
+                {autoImportSummary}
+              </p>
+            )}
+          </div>
+        </div>
+        <input
+          ref={autoImportFileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleAutoImportInputChange}
+        />
+        <button
+          type="button"
+          onClick={handleTriggerAutoImport}
+          disabled={isParsingOrderImage || isSavingOrder}
+          className="bg-[#f97316] hover:bg-[#ea580c] text-white px-5 py-3 rounded-xl font-black flex items-center justify-center gap-2 transition-all text-sm disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+        >
+          {isParsingOrderImage ? <LoaderCircle size={17} className="animate-spin" /> : <UploadCloud size={17} />}
+          {isParsingOrderImage ? 'Đang đọc ảnh...' : 'Upload & tự nhập'}
+        </button>
       </div>
 
       <form onSubmit={handleSaveOrder} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -501,7 +696,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
             <div className="space-y-3 pt-4 border-t border-white/10">
               <button
                 type="submit"
-                disabled={isSavingOrder || isReadingBillImage}
+                disabled={isSavingOrder || isReadingBillImage || isParsingOrderImage}
                 className="w-full bg-white text-[#9d4300] font-black pointer-events-auto cursor-pointer hover:bg-orange-50 py-3.5 rounded-xl shadow-md transition-all active:scale-97 text-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Save size={16} />
@@ -510,7 +705,7 @@ export default function NewOrderView({ branches, products, onAddOrder, onNavigat
               <button
                 type="button"
                 onClick={handleDiscard}
-                disabled={isSavingOrder || isReadingBillImage}
+                disabled={isSavingOrder || isReadingBillImage || isParsingOrderImage}
                 className="w-full bg-orange-600/30 text-white font-bold py-3 rounded-xl border border-white/10 hover:bg-orange-600/50 transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 Hủy và xóa nội dung
