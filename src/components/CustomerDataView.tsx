@@ -1,9 +1,10 @@
 import React, { KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { Order } from '../types';
-import { CalendarDays, Crown, Download, FileText, MessageSquareText, Repeat, Search, Star, Store, UsersRound, WalletCards, X } from 'lucide-react';
+import { CalendarDays, Crown, Download, Edit3, FileText, LoaderCircle, MapPin, MessageSquareText, Phone, Repeat, Save, Search, Star, Store, UserRound, UsersRound, WalletCards, X } from 'lucide-react';
 
 interface CustomerDataViewProps {
   orders: Order[];
+  onUpdateCustomerInfo: (customerOrders: Order[], customerInfo: { name: string; phone: string }) => Promise<boolean>;
 }
 
 type FavoriteItem = {
@@ -24,10 +25,21 @@ type CustomerSegment = {
   className: string;
 };
 
+type CustomerProfile = {
+  address: string;
+};
+
+type CustomerEditForm = {
+  name: string;
+  phone: string;
+  address: string;
+};
+
 type CustomerSummary = {
   key: string;
   name: string;
   phone: string;
+  address: string;
   totalOrders: number;
   totalSpend: number;
   averageOrderValue: number;
@@ -41,6 +53,7 @@ type CustomerSummary = {
 };
 
 const customerInsightStorageKey = 'cing-house-customer-insights';
+const customerProfileStorageKey = 'cing-house-customer-profiles';
 
 function normalizePhone(phone: string) {
   return phone.replace(/\D/g, '');
@@ -50,6 +63,12 @@ function getCustomerKey(order: Order) {
   const phoneKey = normalizePhone(order.customerPhone);
   if (phoneKey) return `phone:${phoneKey}`;
   return `name:${order.customerName.trim().toLowerCase() || 'unknown'}`;
+}
+
+function getCustomerKeyFromInfo(name: string, phone: string) {
+  const phoneKey = normalizePhone(phone);
+  if (phoneKey) return `phone:${phoneKey}`;
+  return `name:${name.trim().toLowerCase() || 'unknown'}`;
 }
 
 function parseOrderDate(order: Order) {
@@ -105,6 +124,17 @@ function loadCustomerInsights() {
   }
 }
 
+function loadCustomerProfiles() {
+  try {
+    const stored = localStorage.getItem(customerProfileStorageKey);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, CustomerProfile> : {};
+  } catch {
+    return {};
+  }
+}
+
 function sortOrdersByDateDesc(customerOrders: Order[]) {
   return [...customerOrders].sort((a, b) => {
     const aDate = parseOrderDate(a)?.getTime() ?? 0;
@@ -113,17 +143,25 @@ function sortOrdersByDateDesc(customerOrders: Order[]) {
   });
 }
 
-export default function CustomerDataView({ orders }: CustomerDataViewProps) {
+export default function CustomerDataView({ orders, onUpdateCustomerInfo }: CustomerDataViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomerKey, setSelectedCustomerKey] = useState<string | null>(null);
   const [customerInsights, setCustomerInsights] = useState<Record<string, string>>(() => loadCustomerInsights());
+  const [customerProfiles, setCustomerProfiles] = useState<Record<string, CustomerProfile>>(() => loadCustomerProfiles());
+  const [editingCustomerKey, setEditingCustomerKey] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<CustomerEditForm>({ name: '', phone: '', address: '' });
+  const [isSavingCustomer, setIsSavingCustomer] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(customerInsightStorageKey, JSON.stringify(customerInsights));
   }, [customerInsights]);
 
+  useEffect(() => {
+    localStorage.setItem(customerProfileStorageKey, JSON.stringify(customerProfiles));
+  }, [customerProfiles]);
+
   const customers = useMemo<CustomerSummary[]>(() => {
-    const customerMap = new Map<string, Omit<CustomerSummary, 'averageOrderValue' | 'lastOrderLabel' | 'favoriteItem' | 'favoriteBranch' | 'favoriteChannel' | 'segment' | 'orders'> & {
+    const customerMap = new Map<string, Omit<CustomerSummary, 'address' | 'averageOrderValue' | 'lastOrderLabel' | 'favoriteItem' | 'favoriteBranch' | 'favoriteChannel' | 'segment' | 'orders'> & {
       itemMap: Map<string, FavoriteItem>;
       branchMap: Map<string, FavoriteSource>;
       channelMap: Map<string, FavoriteSource>;
@@ -208,6 +246,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
           key: customer.key,
           name: customer.name,
           phone: customer.phone,
+          address: customerProfiles[customer.key]?.address ?? '',
           totalOrders: customer.totalOrders,
           totalSpend: customer.totalSpend,
           averageOrderValue: customer.totalOrders > 0 ? Math.round(customer.totalSpend / customer.totalOrders) : 0,
@@ -224,7 +263,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
         if (b.totalSpend !== a.totalSpend) return b.totalSpend - a.totalSpend;
         return b.totalOrders - a.totalOrders;
       });
-  }, [orders]);
+  }, [orders, customerProfiles]);
 
   const filteredCustomers = customers.filter((customer) => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -233,6 +272,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
     return (
       customer.name.toLowerCase().includes(normalizedQuery) ||
       customer.phone.toLowerCase().includes(normalizedQuery) ||
+      customer.address.toLowerCase().includes(normalizedQuery) ||
       customer.segment.label.toLowerCase().includes(normalizedQuery) ||
       (customerInsights[customer.key]?.toLowerCase().includes(normalizedQuery) ?? false) ||
       (customer.favoriteItem?.name.toLowerCase().includes(normalizedQuery) ?? false) ||
@@ -249,6 +289,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
     const headers = [
       'Tên khách hàng',
       'Số điện thoại',
+      'Địa chỉ',
       'Tổng đơn',
       'Tổng chi tiêu',
       'Chi tiêu TB / đơn',
@@ -262,6 +303,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
     const csvRows = filteredCustomers.map((customer) => [
       customer.name,
       customer.phone,
+      customer.address,
       String(customer.totalOrders),
       String(customer.totalSpend),
       String(customer.averageOrderValue),
@@ -292,12 +334,79 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
   const selectedCustomer = selectedCustomerKey
     ? customers.find(customer => customer.key === selectedCustomerKey)
     : null;
+  const isEditingSelectedCustomer = selectedCustomer ? editingCustomerKey === selectedCustomer.key : false;
 
   const updateCustomerInsight = (customerKey: string, insight: string) => {
     setCustomerInsights(current => ({
       ...current,
       [customerKey]: insight
     }));
+  };
+
+  const startEditingCustomer = (customer: CustomerSummary) => {
+    setEditForm({
+      name: customer.name,
+      phone: customer.phone === 'Chưa có SĐT' ? '' : customer.phone,
+      address: customer.address
+    });
+    setEditingCustomerKey(customer.key);
+  };
+
+  const cancelEditingCustomer = () => {
+    setEditingCustomerKey(null);
+    setEditForm({ name: '', phone: '', address: '' });
+  };
+
+  const migrateStoredCustomerData = (fromKey: string, toKey: string, address: string) => {
+    setCustomerProfiles(current => {
+      const next = { ...current };
+      const previous = next[fromKey] ?? { address: '' };
+      if (fromKey !== toKey) delete next[fromKey];
+      next[toKey] = { ...previous, address };
+      return next;
+    });
+
+    if (fromKey !== toKey) {
+      setCustomerInsights(current => {
+        const previousInsight = current[fromKey];
+        if (!previousInsight) return current;
+        const next = { ...current };
+        delete next[fromKey];
+        next[toKey] = previousInsight;
+        return next;
+      });
+    }
+  };
+
+  const handleSaveCustomerInfo = async (customer: CustomerSummary) => {
+    const trimmedName = editForm.name.trim();
+    const trimmedPhone = editForm.phone.trim();
+    const trimmedAddress = editForm.address.trim();
+
+    if (!trimmedName) {
+      alert('Vui lòng nhập tên khách hàng.');
+      return;
+    }
+
+    setIsSavingCustomer(true);
+    try {
+      const currentPhone = customer.phone === 'Chưa có SĐT' ? '' : customer.phone;
+      const customerInfoChanged = trimmedName !== customer.name || trimmedPhone !== currentPhone;
+      if (customerInfoChanged) {
+        const wasUpdated = await onUpdateCustomerInfo(customer.orders, {
+          name: trimmedName,
+          phone: trimmedPhone
+        });
+        if (!wasUpdated) return;
+      }
+
+      const nextKey = getCustomerKeyFromInfo(trimmedName, trimmedPhone);
+      migrateStoredCustomerData(customer.key, nextKey, trimmedAddress);
+      setSelectedCustomerKey(nextKey);
+      cancelEditingCustomer();
+    } finally {
+      setIsSavingCustomer(false);
+    }
   };
 
   const handleCustomerRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, customerKey: string) => {
@@ -394,11 +503,12 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           {filteredCustomers.length > 0 ? (
-            <table className="w-full min-w-[1500px] text-left">
+            <table className="w-full min-w-[1800px] text-left">
               <thead className="bg-[#fffcfb] border-b border-slate-100">
                 <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                   <th className="px-6 py-4">Tên khách hàng</th>
                   <th className="px-6 py-4">Số điện thoại</th>
+                  <th className="px-6 py-4">Địa chỉ</th>
                   <th className="px-6 py-4">Nhóm khách</th>
                   <th className="px-6 py-4 text-center">Tổng đơn hàng</th>
                   <th className="px-6 py-4 text-right">Tổng chi tiêu</th>
@@ -407,6 +517,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
                   <th className="px-6 py-4">Món ưa thích</th>
                   <th className="px-6 py-4">Chi nhánh hay mua</th>
                   <th className="px-6 py-4">Kênh hay dùng</th>
+                  <th className="px-6 py-4">Note insight</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
@@ -438,6 +549,11 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="font-semibold text-slate-600 text-xs">{customer.phone}</span>
+                      </td>
+                      <td className="px-6 py-4 min-w-[220px]">
+                        <span className="block max-w-[220px] truncate font-semibold text-slate-600 text-xs">
+                          {customer.address || 'Chưa có địa chỉ'}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${customer.segment.className}`}>
@@ -494,6 +610,11 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
                           <span className="text-xs font-bold text-slate-400">Chưa có dữ liệu</span>
                         )}
                       </td>
+                      <td className="px-6 py-4 min-w-[260px]">
+                        <span className="block max-w-[260px] truncate font-semibold text-slate-600 text-xs">
+                          {customerInsights[customer.key] || 'Chưa có note'}
+                        </span>
+                      </td>
                     </tr>
                   );
                 })}
@@ -545,13 +666,25 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
                   <p className="text-xs font-bold text-slate-400 mt-0.5">{selectedCustomer.phone}</p>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedCustomerKey(null)}
-                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-                aria-label="Đóng chi tiết khách hàng"
-              >
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => isEditingSelectedCustomer ? cancelEditingCustomer() : startEditingCustomer(selectedCustomer)}
+                  className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-2 text-xs font-black"
+                >
+                  <Edit3 size={15} />
+                  {isEditingSelectedCustomer ? 'Hủy sửa' : 'Sửa thông tin'}
+                </button>
+                <button
+                  onClick={() => {
+                    cancelEditingCustomer();
+                    setSelectedCustomerKey(null);
+                  }}
+                  className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                  aria-label="Đóng chi tiết khách hàng"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             <div className="p-5 md:p-7 space-y-6">
@@ -588,6 +721,66 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
                 </div>
               </div>
 
+              {isEditingSelectedCustomer && (
+                <div className="bg-white rounded-2xl border border-orange-100 shadow-sm p-5 space-y-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <h4 className="font-black text-slate-900 flex items-center gap-2">
+                      <Edit3 size={18} className="text-[#f97316]" />
+                      Sửa thông tin khách hàng
+                    </h4>
+                    <button
+                      onClick={() => handleSaveCustomerInfo(selectedCustomer)}
+                      disabled={isSavingCustomer}
+                      className="px-4 py-2 rounded-xl bg-[#f97316] text-white hover:bg-[#ea580c] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center gap-2 text-xs font-black"
+                    >
+                      {isSavingCustomer ? <LoaderCircle size={15} className="animate-spin" /> : <Save size={15} />}
+                      Lưu thay đổi
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <label className="space-y-2">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <UserRound size={13} />
+                        Tên khách hàng
+                      </span>
+                      <input
+                        value={editForm.name}
+                        onChange={(event) => setEditForm(current => ({ ...current, name: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:bg-white focus:border-[#f97316] focus:ring-4 focus:ring-orange-100 transition-all"
+                        placeholder="Nhập tên khách hàng"
+                      />
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Phone size={13} />
+                        Số điện thoại
+                      </span>
+                      <input
+                        value={editForm.phone}
+                        onChange={(event) => setEditForm(current => ({ ...current, phone: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:bg-white focus:border-[#f97316] focus:ring-4 focus:ring-orange-100 transition-all"
+                        placeholder="Nhập số điện thoại"
+                      />
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <MapPin size={13} />
+                        Địa chỉ
+                      </span>
+                      <input
+                        value={editForm.address}
+                        onChange={(event) => setEditForm(current => ({ ...current, address: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:bg-white focus:border-[#f97316] focus:ring-4 focus:ring-orange-100 transition-all"
+                        placeholder="Nhập địa chỉ khách hàng"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 <aside className="lg:col-span-4 space-y-6">
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
@@ -621,6 +814,10 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
                       <div className="flex justify-between gap-4">
                         <span className="text-slate-400 font-bold">Kênh hay dùng</span>
                         <span className="font-black text-slate-800 text-right">{selectedCustomer.favoriteChannel?.name ?? 'Chưa có dữ liệu'}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400 font-bold">Địa chỉ</span>
+                        <span className="font-black text-slate-800 text-right">{selectedCustomer.address || 'Chưa có địa chỉ'}</span>
                       </div>
                     </div>
                   </div>

@@ -13,6 +13,7 @@ import {
   createOrder,
   deleteOrder,
   loadOrders,
+  updateOrder,
 } from './services/orders';
 import {
   createProduct,
@@ -285,6 +286,28 @@ export default function App() {
     } catch (error) {
       console.error('Failed to delete product in Supabase:', error);
       alert(`Không thể xóa sản phẩm khỏi Supabase: ${getErrorMessage(error)}`);
+      return false;
+    }
+  };
+
+  const handleUpdateCustomerInfo = async (
+    customerOrders: Order[],
+    customerInfo: { name: string; phone: string }
+  ): Promise<boolean> => {
+    try {
+      const savedOrders = await Promise.all(
+        customerOrders.map(order => updateOrder({
+          ...order,
+          customerName: customerInfo.name,
+          customerPhone: customerInfo.phone
+        }))
+      );
+      const savedOrderMap = new Map(savedOrders.map(order => [order.id, order]));
+      setOrders(currentOrders => currentOrders.map(order => savedOrderMap.get(order.id) ?? order));
+      return true;
+    } catch (error) {
+      console.error('Failed to update customer information in Supabase:', error);
+      alert(`Không thể cập nhật thông tin khách hàng: ${getErrorMessage(error)}`);
       return false;
     }
   };
@@ -585,7 +608,10 @@ export default function App() {
             )}
 
             {activeView === 'Customers' && (
-              <CustomerDataView orders={orders} />
+              <CustomerDataView
+                orders={orders}
+                onUpdateCustomerInfo={handleUpdateCustomerInfo}
+              />
             )}
 
             {activeView === 'Product Catalog' && (
