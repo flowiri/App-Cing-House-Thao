@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { Order } from '../types';
-import { Crown, Download, Repeat, Search, Star, UsersRound, WalletCards } from 'lucide-react';
+import { CalendarDays, Crown, Download, FileText, MessageSquareText, Repeat, Search, Star, Store, UsersRound, WalletCards, X } from 'lucide-react';
 
 interface CustomerDataViewProps {
   orders: Order[];
@@ -37,7 +37,10 @@ type CustomerSummary = {
   favoriteChannel?: FavoriteSource;
   favoriteItem?: FavoriteItem;
   segment: CustomerSegment;
+  orders: Order[];
 };
+
+const customerInsightStorageKey = 'cing-house-customer-insights';
 
 function normalizePhone(phone: string) {
   return phone.replace(/\D/g, '');
@@ -91,14 +94,40 @@ function getCustomerSegment(totalOrders: number, totalSpend: number, lastOrderAt
   return { label: 'Khách mới', className: 'bg-blue-50 text-blue-700' };
 }
 
+function loadCustomerInsights() {
+  try {
+    const stored = localStorage.getItem(customerInsightStorageKey);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, string> : {};
+  } catch {
+    return {};
+  }
+}
+
+function sortOrdersByDateDesc(customerOrders: Order[]) {
+  return [...customerOrders].sort((a, b) => {
+    const aDate = parseOrderDate(a)?.getTime() ?? 0;
+    const bDate = parseOrderDate(b)?.getTime() ?? 0;
+    return bDate - aDate;
+  });
+}
+
 export default function CustomerDataView({ orders }: CustomerDataViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCustomerKey, setSelectedCustomerKey] = useState<string | null>(null);
+  const [customerInsights, setCustomerInsights] = useState<Record<string, string>>(() => loadCustomerInsights());
+
+  useEffect(() => {
+    localStorage.setItem(customerInsightStorageKey, JSON.stringify(customerInsights));
+  }, [customerInsights]);
 
   const customers = useMemo<CustomerSummary[]>(() => {
-    const customerMap = new Map<string, Omit<CustomerSummary, 'averageOrderValue' | 'lastOrderLabel' | 'favoriteItem' | 'favoriteBranch' | 'favoriteChannel' | 'segment'> & {
+    const customerMap = new Map<string, Omit<CustomerSummary, 'averageOrderValue' | 'lastOrderLabel' | 'favoriteItem' | 'favoriteBranch' | 'favoriteChannel' | 'segment' | 'orders'> & {
       itemMap: Map<string, FavoriteItem>;
       branchMap: Map<string, FavoriteSource>;
       channelMap: Map<string, FavoriteSource>;
+      orders: Order[];
     }>();
 
     orders.forEach((order) => {
@@ -113,7 +142,8 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
         lastOrderAt: null,
         itemMap: new Map<string, FavoriteItem>(),
         branchMap: new Map<string, FavoriteSource>(),
-        channelMap: new Map<string, FavoriteSource>()
+        channelMap: new Map<string, FavoriteSource>(),
+        orders: []
       };
 
       if (!customer.name && order.customerName) customer.name = order.customerName;
@@ -121,6 +151,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
 
       customer.totalOrders += 1;
       customer.totalSpend += order.total;
+      customer.orders.push(order);
 
       const placedAt = parseOrderDate(order);
       if (placedAt && (!customer.lastOrderAt || placedAt > customer.lastOrderAt)) {
@@ -185,7 +216,8 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
           favoriteBranch: getFavoriteSource(customer.branchMap),
           favoriteChannel: getFavoriteSource(customer.channelMap),
           favoriteItem,
-          segment: getCustomerSegment(customer.totalOrders, customer.totalSpend, customer.lastOrderAt)
+          segment: getCustomerSegment(customer.totalOrders, customer.totalSpend, customer.lastOrderAt),
+          orders: sortOrdersByDateDesc(customer.orders)
         };
       })
       .sort((a, b) => {
@@ -202,6 +234,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
       customer.name.toLowerCase().includes(normalizedQuery) ||
       customer.phone.toLowerCase().includes(normalizedQuery) ||
       customer.segment.label.toLowerCase().includes(normalizedQuery) ||
+      (customerInsights[customer.key]?.toLowerCase().includes(normalizedQuery) ?? false) ||
       (customer.favoriteItem?.name.toLowerCase().includes(normalizedQuery) ?? false) ||
       (customer.favoriteBranch?.name.toLowerCase().includes(normalizedQuery) ?? false) ||
       (customer.favoriteChannel?.name.toLowerCase().includes(normalizedQuery) ?? false)
@@ -223,7 +256,8 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
       'Món yêu thích',
       'Chi nhánh hay mua',
       'Kênh hay dùng',
-      'Nhóm khách hàng'
+      'Nhóm khách hàng',
+      'Insight khách hàng'
     ];
     const csvRows = filteredCustomers.map((customer) => [
       customer.name,
@@ -235,7 +269,8 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
       customer.favoriteItem?.name ?? '',
       customer.favoriteBranch?.name ?? '',
       customer.favoriteChannel?.name ?? '',
-      customer.segment.label
+      customer.segment.label,
+      customerInsights[customer.key] ?? ''
     ]);
     const escapeCsv = (value: string) => `"${value.replace(/"/g, '""')}"`;
     const csv = [headers, ...csvRows]
@@ -254,6 +289,23 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
   const repeatCustomers = customers.filter(customer => customer.totalOrders >= 3).length;
   const vipCustomers = customers.filter(customer => customer.segment.label === 'VIP').length;
   const bestCustomer = customers[0];
+  const selectedCustomer = selectedCustomerKey
+    ? customers.find(customer => customer.key === selectedCustomerKey)
+    : null;
+
+  const updateCustomerInsight = (customerKey: string, insight: string) => {
+    setCustomerInsights(current => ({
+      ...current,
+      [customerKey]: insight
+    }));
+  };
+
+  const handleCustomerRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, customerKey: string) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setSelectedCustomerKey(customerKey);
+    }
+  };
 
   return (
     <div className="space-y-6 font-sans select-none animate-fade-in pb-16">
@@ -333,7 +385,7 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
             type="text"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Tìm tên, số điện thoại, nhóm khách, món, chi nhánh hoặc kênh đặt hàng..."
+            placeholder="Tìm tên, số điện thoại, insight, nhóm khách, món, chi nhánh hoặc kênh đặt hàng..."
             className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 focus:border-[#f97316] focus:outline-none text-sm transition-all text-slate-800"
           />
         </div>
@@ -368,7 +420,14 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
                     .toUpperCase() || 'KH';
 
                   return (
-                    <tr key={customer.key} className="hover:bg-slate-50/50 transition-colors">
+                    <tr
+                      key={customer.key}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedCustomerKey(customer.key)}
+                      onKeyDown={(event) => handleCustomerRowKeyDown(event, customer.key)}
+                      className="hover:bg-slate-50/50 transition-colors cursor-pointer outline-none focus:bg-orange-50/50"
+                    >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3 max-w-[260px]">
                           <div className="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center text-[#9d4300] font-black text-xs shrink-0">
@@ -458,6 +517,239 @@ export default function CustomerDataView({ orders }: CustomerDataViewProps) {
           </div>
         </div>
       </div>
+
+      {selectedCustomer && (
+        <div
+          className="fixed inset-0 z-[120] bg-slate-900/50 backdrop-blur-xs flex justify-end animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setSelectedCustomerKey(null)}
+        >
+          <section
+            className="w-full max-w-6xl h-full bg-[#F8FAFC] shadow-2xl overflow-y-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-5 md:px-7 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-11 h-11 rounded-xl bg-orange-100 text-[#9d4300] flex items-center justify-center text-sm font-black shrink-0">
+                  {selectedCustomer.name
+                    .split(' ')
+                    .filter(Boolean)
+                    .map(part => part[0])
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase() || 'KH'}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xl font-black text-slate-900 truncate">{selectedCustomer.name}</h3>
+                  <p className="text-xs font-bold text-slate-400 mt-0.5">{selectedCustomer.phone}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedCustomerKey(null)}
+                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                aria-label="Đóng chi tiết khách hàng"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 md:p-7 space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng đơn</span>
+                    <FileText size={18} className="text-blue-500" />
+                  </div>
+                  <p className="text-2xl font-black text-slate-800 mt-4">{selectedCustomer.totalOrders}</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Tổng chi tiêu</span>
+                    <WalletCards size={18} className="text-green-500" />
+                  </div>
+                  <p className="text-2xl font-black text-slate-800 mt-4">{formatMoney(selectedCustomer.totalSpend)}</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">TB / đơn</span>
+                    <Star size={18} className="text-[#f97316]" />
+                  </div>
+                  <p className="text-2xl font-black text-slate-800 mt-4">{formatMoney(selectedCustomer.averageOrderValue)}</p>
+                </div>
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">Nhóm khách</span>
+                    <UsersRound size={18} className="text-purple-500" />
+                  </div>
+                  <p className={`inline-flex mt-4 px-3 py-1.5 rounded-full text-xs font-black ${selectedCustomer.segment.className}`}>
+                    {selectedCustomer.segment.label}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <aside className="lg:col-span-4 space-y-6">
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+                    <h4 className="font-black text-slate-900 flex items-center gap-2">
+                      <MessageSquareText size={18} className="text-[#f97316]" />
+                      Insight khách hàng
+                    </h4>
+                    <textarea
+                      value={customerInsights[selectedCustomer.key] ?? ''}
+                      onChange={(event) => updateCustomerInsight(selectedCustomer.key, event.target.value)}
+                      className="w-full min-h-40 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-700 outline-none resize-y focus:bg-white focus:border-[#f97316] focus:ring-4 focus:ring-orange-100 transition-all"
+                      placeholder="Ghi chú khẩu vị, thói quen mua hàng, dịp chăm sóc, phản hồi hoặc insight riêng..."
+                    />
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+                    <h4 className="font-black text-slate-900">Hồ sơ mua hàng</h4>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400 font-bold">Lần mua gần nhất</span>
+                        <span className="font-black text-slate-800 text-right">{selectedCustomer.lastOrderLabel}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400 font-bold">Món yêu thích</span>
+                        <span className="font-black text-slate-800 text-right">{selectedCustomer.favoriteItem?.name ?? 'Chưa có dữ liệu'}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400 font-bold">Chi nhánh hay mua</span>
+                        <span className="font-black text-slate-800 text-right">{selectedCustomer.favoriteBranch?.name ?? 'Chưa có dữ liệu'}</span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-slate-400 font-bold">Kênh hay dùng</span>
+                        <span className="font-black text-slate-800 text-right">{selectedCustomer.favoriteChannel?.name ?? 'Chưa có dữ liệu'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+
+                <div className="lg:col-span-8 space-y-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <h4 className="font-black text-slate-900 text-lg">Lịch sử mua hàng & hóa đơn</h4>
+                    <span className="text-xs font-black text-slate-400">{selectedCustomer.orders.length} hóa đơn</span>
+                  </div>
+
+                  {selectedCustomer.orders.map((order) => (
+                    <details key={order.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden group" open={selectedCustomer.orders.length === 1}>
+                      <summary className="list-none cursor-pointer p-5 hover:bg-slate-50 transition-colors">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-black text-slate-900">{order.id}</span>
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-black ${
+                                order.status === 'COMPLETED'
+                                  ? 'bg-green-50 text-green-700'
+                                  : order.status === 'CANCELLED'
+                                    ? 'bg-red-50 text-red-700'
+                                    : 'bg-blue-50 text-blue-700'
+                              }`}>
+                                {order.status}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-bold text-slate-400">
+                              <span className="flex items-center gap-1.5">
+                                <CalendarDays size={14} />
+                                {order.placedTimeFull}
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <Store size={14} />
+                                {order.branch}
+                              </span>
+                              <span>{order.channel}</span>
+                            </div>
+                          </div>
+                          <div className="text-left md:text-right">
+                            <p className="text-lg font-black text-[#9d4300]">{formatMoney(order.total)}</p>
+                            <p className="text-[10px] font-bold text-slate-400 mt-0.5">{order.items.length} món</p>
+                          </div>
+                        </div>
+                      </summary>
+
+                      <div className="border-t border-slate-100 p-5 grid grid-cols-1 xl:grid-cols-12 gap-5">
+                        <div className="xl:col-span-8 overflow-hidden rounded-xl border border-slate-100">
+                          <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                              <tr>
+                                <th className="px-4 py-3">Món</th>
+                                <th className="px-4 py-3 text-center">SL</th>
+                                <th className="px-4 py-3 text-right">Đơn giá</th>
+                                <th className="px-4 py-3 text-right">Thành tiền</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-xs">
+                              {order.items.map((item, index) => (
+                                <tr key={`${order.id}-${item.id}-${index}`}>
+                                  <td className="px-4 py-3">
+                                    <span className="font-black text-slate-800">{item.name}</span>
+                                    <span className="block mt-0.5 text-[10px] text-slate-400 font-bold">{item.sku}</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-center font-black text-slate-700">{item.quantity}</td>
+                                  <td className="px-4 py-3 text-right font-bold text-slate-500">{formatMoney(item.price)}</td>
+                                  <td className="px-4 py-3 text-right font-black text-slate-900">{formatMoney(item.subtotal)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-slate-50/70 text-xs">
+                              <tr>
+                                <td className="px-4 py-3 text-right font-bold text-slate-500" colSpan={3}>Tạm tính</td>
+                                <td className="px-4 py-3 text-right font-black text-slate-800">{formatMoney(order.subtotal)}</td>
+                              </tr>
+                              {order.serviceFee && order.serviceFee > 0 ? (
+                                <tr>
+                                  <td className="px-4 py-3 text-right font-bold text-slate-500" colSpan={3}>Phí dịch vụ</td>
+                                  <td className="px-4 py-3 text-right font-black text-slate-800">{formatMoney(order.serviceFee)}</td>
+                                </tr>
+                              ) : null}
+                              {order.shippingFee > 0 ? (
+                                <tr>
+                                  <td className="px-4 py-3 text-right font-bold text-slate-500" colSpan={3}>Phí giao hàng</td>
+                                  <td className="px-4 py-3 text-right font-black text-slate-800">{formatMoney(order.shippingFee)}</td>
+                                </tr>
+                              ) : null}
+                              <tr>
+                                <td className="px-4 py-4 text-right font-black text-[#9d4300]" colSpan={3}>Tổng tiền</td>
+                                <td className="px-4 py-4 text-right font-black text-[#9d4300] text-base">{formatMoney(order.total)}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+
+                        <div className="xl:col-span-4 space-y-4">
+                          {order.notes && (
+                            <div className="rounded-xl bg-[#fff1eb] border border-[#ffeae0] p-4">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-[#9d4300] mb-1">Ghi chú đơn</p>
+                              <p className="text-xs font-bold text-[#9d4300] leading-relaxed">{order.notes}</p>
+                            </div>
+                          )}
+
+                          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-3">Ảnh bill</p>
+                            {order.screenshot ? (
+                              <img
+                                className="w-full max-h-64 object-cover rounded-lg border border-slate-200 bg-white"
+                                src={order.screenshot}
+                                alt={`Ảnh bill ${order.id}`}
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="h-32 rounded-lg border-2 border-dashed border-slate-200 flex items-center justify-center text-xs font-bold text-slate-400">
+                                Không có ảnh bill
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
